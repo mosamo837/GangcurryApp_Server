@@ -1,1 +1,8 @@
 # GangcurryApp
+
+สร้าง ไฟล์ .env แล้วเอา apikey เก็บไว้ในนั้น
+
+PORT=3000
+SUPABASE_URL=https://adsvogqoamqkvbaijmsg.supabase.co
+SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFkc3ZvZ3FvYW1xa3ZiYWlqbXNnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzczNjE5MjYsImV4cCI6MjA5MjkzNzkyNn0.gVsk6mZVwEW3QjemO_u0pfTafiKj83Pg5woAiAIcN_k
+
