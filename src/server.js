@@ -981,21 +981,50 @@ riderRouter.patch("/parcels/:shipmentId/status", async (req, res, next) => {
     const shipmentId = Number(req.params.shipmentId);
     const status = String(req.body?.status ?? "").trim();
 
-    if (!shipmentId) return res.status(400).json({ error: "shipmentId is required" });
-
-    const validStatuses = ["กำลังจัดส่ง", "delivered", "failed"];
-    if (!status || !validStatuses.includes(status)) {
-      return res.status(400).json({ error: `status must be one of: ${validStatuses.join(", ")}` });
+    if (!shipmentId) {
+      return res.status(400).json({
+        error: "shipmentId is required",
+      });
     }
 
+    const validStatuses = ["กำลังจัดส่ง", "delivered", "failed"];
+
+    if (!status || !validStatuses.includes(status)) {
+      return res.status(400).json({
+        error: `status must be one of: ${validStatuses.join(", ")}`,
+      });
+    }
+
+    // update shipment
     const { data, error } = await supabase
       .from("shipment")
       .update({ status })
       .eq("shipment_id", shipmentId)
-      .select("shipment_id, tracking_number, status, receiver_address, sender_detail, shipping_cost, shipment_date, estimated_delivery, request_id")
+      .select(`
+        shipment_id,
+        tracking_number,
+        status,
+        receiver_address,
+        sender_detail,
+        shipping_cost,
+        shipment_date,
+        estimated_delivery,
+        request_id
+      `)
       .single();
 
     if (error) throw error;
+
+    // update request status ด้วย
+    if (status === "delivered") {
+      const { error: requestError } = await supabase
+        .from("request")
+        .update({ status: "delivered" })
+        .eq("shipment_id", shipmentId);
+
+      if (requestError) throw requestError;
+    }
+
     res.json(data);
   } catch (error) {
     next(error);
