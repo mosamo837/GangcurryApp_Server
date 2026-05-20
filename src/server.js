@@ -1015,12 +1015,12 @@ riderRouter.patch("/parcels/:shipmentId/status", async (req, res, next) => {
 
     if (error) throw error;
 
-    // update request status ด้วย
-    if (status === "delivered") {
+    // update request
+    if (status === "delivered" && data.request_id) {
       const { error: requestError } = await supabase
         .from("request")
         .update({ status: "delivered" })
-        .eq("shipment_id", shipmentId);
+        .eq("request_id", data.request_id);
 
       if (requestError) throw requestError;
     }
