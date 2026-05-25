@@ -759,6 +759,76 @@ app.post("/api/returns", async (req, res, next) => {
   }
 });
 
+app.post(
+  "/api/shipping/calculate",
+  async (req, res) => {
+    try {
+      const {
+        weight,
+        width,
+        height,
+        length,
+        distanceKm,
+      } = req.body;
+
+      // น้ำหนักปริมาตร
+      const volumeWeight =
+        (width * height * length) / 5000;
+
+      // ใช้น้ำหนักที่มากกว่า
+      const finalWeight = Math.max(
+        weight,
+        volumeWeight
+      );
+
+      // หา rate
+      const { data: rate, error } =
+        await supabase
+          .from("shipping_rate")
+          .select("*")
+          .lte("min_weight", finalWeight)
+          .gte("max_weight", finalWeight)
+          .single();
+
+      if (error || !rate) {
+        return res.status(404).json({
+          error:
+            "ไม่พบอัตราค่าจัดส่ง",
+        });
+      }
+
+      // คำนวณราคา
+      const shippingCost =
+        Number(rate.base_price) +
+        Number(distanceKm) *
+          Number(rate.price_per_km);
+
+      res.json({
+        success: true,
+
+        finalWeight:
+          Number(finalWeight.toFixed(2)),
+
+        volumeWeight:
+          Number(volumeWeight.toFixed(2)),
+
+        distanceKm,
+
+        shippingCost:
+          Number(
+            shippingCost.toFixed(2)
+          ),
+
+        rate,
+      });
+    } catch (e) {
+      res.status(500).json({
+        error: e.message,
+      });
+    }
+  }
+);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Generic DB Routes
 // ─────────────────────────────────────────────────────────────────────────────
