@@ -783,19 +783,20 @@ app.post(
 
       // หา rate
       const { data: rate, error } =
-        await supabase
-          .from("shipping_rate")
-          .select("*")
-          .lte("min_weight", finalWeight)
-          .gte("max_weight", finalWeight)
-          .single();
+  await supabase
+    .from("shipping_rate")
+    .select("*")
+    .lte("min_weight", finalWeight)
+    .gte("max_weight", finalWeight)
+    .limit(1)
+    .maybeSingle();
 
-      if (error || !rate) {
-        return res.status(404).json({
-          error:
-            "ไม่พบอัตราค่าจัดส่ง",
-        });
-      }
+if (!rate) {
+  return res.status(404).json({
+    error:
+      `ไม่พบอัตราค่าส่งสำหรับ ${finalWeight} kg`,
+  });
+}
 
       // คำนวณราคา
       const shippingCost =
