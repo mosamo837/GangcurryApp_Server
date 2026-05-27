@@ -4,6 +4,9 @@ import express from "express";
 import bcrypt from "bcrypt";
 import { createClient } from "@supabase/supabase-js";
 
+const promptpay = require("promptpay-qr");
+const QRCode = require("qrcode");
+
 dotenv.config();
 
 const app = express();
@@ -529,6 +532,107 @@ app.post("/api/addresses", async (req, res, next) => {
     res.status(201).json(data);
   } catch (error) {
     next(error);
+  }
+});
+
+//PronptPay Top-up
+app.post("/api/wallet/topup", async (req, res) => {
+  try {
+    const { userId, amount } = req.body;
+
+    if (!amount || amount <= 0) {
+      return res.status(400).json({
+        error: "จำนวนเงินไม่ถูกต้อง",
+      });
+    }
+
+    // สร้าง transaction
+    const { data, error } = await supabase
+      .from("wallet_transaction")
+      .insert([
+        {
+          user_id: userId,
+          amount,
+          type: "topup",
+          status: "pending",
+        },
+      ])
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    // สร้าง QR PromptPay
+    const payload = promptpay("0855275914", {
+      amount: Number(amount),
+    });
+
+    const qrCode = await QRCode.toDataURL(payload);
+
+    res.json({
+      transaction_id: data.transaction_id,
+      qr_code: qrCode,
+    });
+  } catch (e) {
+    res.status(500).json({
+      error: e.message,
+    });
+  }
+});
+
+app.post("/api/wallet/confirm", async (req, res) => {
+  try {
+    const { transactionId } = req.body;
+
+    const { data: transaction, error } = await supabase
+      .from("wallet_transaction")
+      .select("*")
+      .eq("transaction_id", transactionId)
+      .single();
+
+    if (error || !transaction) {
+      return res.status(404).json({
+        error: "ไม่พบ transaction",
+      });
+    }
+
+    if (transaction.status === "completed") {
+      return res.status(400).json({
+        error: "รายการนี้ถูกยืนยันแล้ว",
+      });
+    }
+
+    // เพิ่มเงินเข้า wallet
+    const { data: userData } = await supabase
+      .from("users")
+      .select("wallet")
+      .eq("user_id", transaction.user_id)
+      .single();
+
+    const currentWallet = Number(userData.wallet || 0);
+
+    await supabase
+      .from("users")
+      .update({
+        wallet: currentWallet + Number(transaction.amount),
+      })
+      .eq("user_id", transaction.user_id);
+
+    // update transaction
+    await supabase
+      .from("wallet_transaction")
+      .update({
+        status: "completed",
+      })
+      .eq("transaction_id", transactionId);
+
+    res.json({
+      success: true,
+    });
+  } catch (e) {
+    res.status(500).json({
+      error: e.message,
+    });
   }
 });
 
