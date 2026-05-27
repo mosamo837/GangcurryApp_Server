@@ -4,8 +4,8 @@ import express from "express";
 import bcrypt from "bcrypt";
 import { createClient } from "@supabase/supabase-js";
 
-const promptpay = require("promptpay-qr");
-const QRCode = require("qrcode");
+import promptpay from "promptpay-qr";
+import QRCode from "qrcode";
 
 dotenv.config();
 
