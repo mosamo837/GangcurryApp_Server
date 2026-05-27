@@ -636,6 +636,29 @@ app.post("/api/wallet/confirm", async (req, res) => {
   }
 });
 
+app.get("/api/wallet/history/:userId", async (req, res) => {
+  try {
+    const userId = req.params.userId;
+
+    const { data, error } = await supabase
+      .from("wallet_transaction")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("type", "topup")
+      .order("created_at", {
+        ascending: false,
+      });
+
+    if (error) throw error;
+
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({
+      error: e.message,
+    });
+  }
+});
+
 app.patch("/api/addresses/:id", async (req, res, next) => {
   try {
     const { data, error } = await supabase
