@@ -659,6 +659,41 @@ app.get("/api/wallet/history/:userId", async (req, res) => {
   }
 });
 
+app.get("/api/wallet/qr/:transactionId", async (req, res) => {
+  try {
+    const transactionId = req.params.transactionId;
+
+    const { data, error } = await supabase
+      .from("wallet_transaction")
+      .select("*")
+      .eq("transaction_id", transactionId)
+      .single();
+
+    if (error || !data) {
+      return res.status(404).json({
+        error: "ไม่พบ transaction",
+      });
+    }
+
+    const payload = promptpay("0812345678", {
+      amount: Number(data.amount),
+    });
+
+    const qrCode = await QRCode.toDataURL(payload);
+
+    res.json({
+      qr_code: qrCode,
+      amount: data.amount,
+      transaction_id: data.transaction_id,
+      status: data.status,
+    });
+  } catch (e) {
+    res.status(500).json({
+      error: e.message,
+    });
+  }
+});
+
 app.patch("/api/addresses/:id", async (req, res, next) => {
   try {
     const { data, error } = await supabase
