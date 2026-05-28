@@ -160,11 +160,10 @@ async function getUniqueTrackingNumber() {
 
 // เพิ่ม helper function ใน server.js
 async function geocodeAddress(addressDetail, subdistrict, district, province, zipcode) {
-  // ลอง query หลายแบบเรียงจากละเอียดไปหยาบ
   const queries = [
+    `${subdistrict} ${district} ${province} Thailand`,
     `${district} ${province} Thailand`,
     `${province} Thailand`,
-    `${zipcode} Thailand`,
   ];
 
   for (const query of queries) {
@@ -182,7 +181,7 @@ async function geocodeAddress(addressDetail, subdistrict, district, province, zi
       const data = await response.json();
 
       if (data && data.length > 0) {
-        console.log('✅ Found with query:', query, data[0].lat, data[0].lon);
+        console.log('✅ Found:', data[0].lat, data[0].lon);
         return {
           latitude: parseFloat(data[0].lat),
           longitude: parseFloat(data[0].lon),
@@ -190,15 +189,13 @@ async function geocodeAddress(addressDetail, subdistrict, district, province, zi
       }
 
       console.log('⚠️ Not found:', query);
-
-      // Nominatim มี rate limit 1 request/sec
-      await new Promise((resolve) => setTimeout(resolve, 1100));
+      await new Promise((r) => setTimeout(r, 1100)); // rate limit
     } catch (e) {
-      console.error('❌ Error:', e);
+      console.error('❌ Geocode error:', e);
     }
   }
 
-  return null;
+  return null; // ไม่เจอพิกัด
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -374,7 +371,7 @@ app.post("/api/shipments/confirm", async (req, res, next) => {
     const now = new Date();
     const estimatedDelivery = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
 
-    // ── 1. หา branch ที่ตรงกับจังหวัดผู้ส่ง ──
+    // ── 1. หา branch ของผู้ส่ง ──
     const senderProvince = senderAddress?.province ?? null;
     let branchStart = null;
     if (senderProvince) {
@@ -386,9 +383,7 @@ app.post("/api/shipments/confirm", async (req, res, next) => {
       branchStart = branchStartRows?.[0]?.branch_id ?? null;
     }
 
-    // ── 2. หา branch ที่ตรงกับจังหวัดผู้รับ ──
-    // receiverAddress คือ string เต็ม เช่น "123 ถ.xxx, ตำบล, อำเภอ, จังหวัด XXXXX"
-    // ดึงจังหวัดออกจาก address object ของผู้รับ
+    // ── 2. หา branch ของผู้รับ ──
     const receiverAddressRow = await getPrimaryAddress(receiverId);
     const receiverProvince = receiverAddressRow?.province ?? null;
     let branchEnd = null;
@@ -401,7 +396,24 @@ app.post("/api/shipments/confirm", async (req, res, next) => {
       branchEnd = branchEndRows?.[0]?.branch_id ?? null;
     }
 
-    // ── 3. สร้าง shipment ──
+    // ── 3. คำนวณค่าจัดส่ง ──
+    const shippingCost = calculateShippingCost(Number(parcelWeight));
+
+    // ── 4. ตรวจสอบ wallet ของผู้ส่ง ──
+    const { data: senderData, error: senderError } = await supabase
+      .from("users")
+      .select("wallet")
+      .eq("user_id", senderId)
+      .single();
+
+    if (senderError) throw senderError;
+
+    const currentWallet = Number(senderData?.wallet ?? 0);
+    if (currentWallet < shippingCost) {
+      throw createHttpError(400, `ยอดเงินในกระเป๋าไม่เพียงพอ (มี ${currentWallet} บาท, ต้องการ ${shippingCost} บาท)`);
+    }
+
+    // ── 5. สร้าง shipment ──
     const { data: shipmentRows, error: insertShipmentError } = await supabase
       .from("shipment")
       .insert({
@@ -409,7 +421,7 @@ app.post("/api/shipments/confirm", async (req, res, next) => {
         receiver_id: receiverId,
         receiver_address: receiverAddress,
         sender_detail: senderDetail,
-        shipping_cost: calculateShippingCost(Number(parcelWeight)),
+        shipping_cost: shippingCost,
         shipment_date: now.toISOString(),
         estimated_delivery: estimatedDelivery.toISOString(),
         status: "waiting_driver",
@@ -421,24 +433,44 @@ app.post("/api/shipments/confirm", async (req, res, next) => {
     if (insertShipmentError) throw insertShipmentError;
 
     const newShipment = shipmentRows?.[0] ?? null;
+    if (!newShipment) throw createHttpError(500, "สร้าง shipment ไม่สำเร็จ");
 
-    // ── 4. สร้าง shipment_tracking พร้อม branch_start / branch_end ──
-    if (newShipment) {
-      const { error: trackingError } = await supabase
-        .from("shipment_tracking")
-        .insert({
-          shipment_id: newShipment.shipment_id,
-          status: "waiting_driver",
-          note: "รอคนขับรับพัสดุ",
-          branch_start: branchStart,
-          branch_end: branchEnd,
-          timestamp: now.toISOString(),
-        });
+    // ── 6. สร้าง shipment_tracking ──
+    const { error: trackingError } = await supabase
+      .from("shipment_tracking")
+      .insert({
+        shipment_id: newShipment.shipment_id,
+        status: "waiting_driver",
+        note: "รอคนขับรับพัสดุ",
+        branch_start: branchStart,
+        branch_end: branchEnd,
+        timestamp: now.toISOString(),
+      });
 
-      if (trackingError) throw trackingError;
-    }
+    if (trackingError) throw trackingError;
 
-    // ── 5. อัปเดต parcel และ request ──
+    // ── 7. หักเงิน wallet ผู้ส่ง ──
+    const { error: walletError } = await supabase
+      .from("users")
+      .update({ wallet: currentWallet - shippingCost })
+      .eq("user_id", senderId);
+
+    if (walletError) throw walletError;
+
+    // ── 8. บันทึก payment ──
+    const { error: paymentError } = await supabase
+      .from("payment")
+      .insert({
+        shipment_id: newShipment.shipment_id,
+        user_id: senderId,
+        amount: shippingCost,
+        method: "wallet",
+        status: "completed",
+      });
+
+    if (paymentError) throw paymentError;
+
+    // ── 9. อัปเดต parcel และ request ──
     const { error: updateParcelError } = await supabase
       .from("parcels")
       .update({ quantity })
@@ -580,24 +612,8 @@ app.post("/api/auth/register", async (req, res, next) => {
     const existingUser = await getUserByEmail(normalizedEmail);
     if (existingUser) throw createHttpError(409, "อีเมลนี้ถูกใช้งานแล้ว");
 
-    const hashedPassword = await bcrypt.hash(String(password), 12);
-
-    const { data: newUser, error: userError } = await supabase
-      .from("users")
-      .insert({
-        name: String(name ?? "").trim(),
-        email: normalizedEmail,
-        password: hashedPassword,
-        phone: String(phone ?? "").trim(),
-        wallet: 0,
-      })
-      .select()
-      .single();
-
-    if (userError) throw userError;
-
+    // ── geocode ก่อน สมัครสมาชิก ──
     if (address) {
-      // ── geocode address ก่อน insert ──
       const coords = await geocodeAddress(
         address.address_detail,
         address.subdistrict,
@@ -605,6 +621,27 @@ app.post("/api/auth/register", async (req, res, next) => {
         address.province,
         address.zipcode,
       );
+
+      // ถ้าหาพิกัดไม่ได้ → reject ทันที ไม่ต้อง insert อะไรเลย
+      if (!coords) {
+        throw createHttpError(400, "ที่อยู่ไม่ถูกต้อง กรุณากรอกที่อยู่ใหม่อีกครั้ง");
+      }
+
+      const hashedPassword = await bcrypt.hash(String(password), 12);
+
+      const { data: newUser, error: userError } = await supabase
+        .from("users")
+        .insert({
+          name: String(name ?? "").trim(),
+          email: normalizedEmail,
+          password: hashedPassword,
+          phone: String(phone ?? "").trim(),
+          wallet: 0,
+        })
+        .select()
+        .single();
+
+      if (userError) throw userError;
 
       const { error: addressError } = await supabase.from("address").insert({
         user_id: newUser.user_id,
@@ -615,15 +652,18 @@ app.post("/api/auth/register", async (req, res, next) => {
         zipcode: String(address.zipcode ?? "").trim(),
         label: String(address.label ?? "บ้าน").trim(),
         is_default: true,
-        latitude: coords?.latitude ?? null,   // ← เพิ่ม
-        longitude: coords?.longitude ?? null, // ← เพิ่ม
+        latitude: coords.latitude,
+        longitude: coords.longitude,
       });
 
       if (addressError) throw addressError;
+
+      const { password: _password, ...safeUser } = newUser;
+      return res.status(201).json(safeUser);
     }
 
-    const { password: _password, ...safeUser } = newUser;
-    res.status(201).json(safeUser);
+    // ไม่มี address เลย
+    throw createHttpError(400, "กรุณากรอกที่อยู่");
   } catch (error) {
     next(error);
   }
@@ -654,16 +694,35 @@ app.post("/api/auth/login", async (req, res, next) => {
 // Address Routes
 // ─────────────────────────────────────────────────────────────────────────────
 
-app.get("/api/addresses/user/:userId", async (req, res, next) => {
+app.post("/api/addresses", async (req, res, next) => {
   try {
+    const { user_id, address_detail, province, district, subdistrict, zipcode, label } = req.body;
+
+    const coords = await geocodeAddress(address_detail, subdistrict, district, province, zipcode);
+
+    if (!coords) {
+      throw createHttpError(400, "ที่อยู่ไม่ถูกต้อง กรุณากรอกที่อยู่ใหม่อีกครั้ง");
+    }
+
     const { data, error } = await supabase
       .from("address")
+      .insert({
+        user_id,
+        address_detail,
+        province,
+        district,
+        subdistrict,
+        zipcode,
+        label: label || "บ้าน",
+        is_default: false,
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+      })
       .select()
-      .eq("user_id", Number(req.params.userId))
-      .order("is_default", { ascending: false });
+      .single();
 
     if (error) throw error;
-    res.json(data ?? []);
+    res.status(201).json(data);
   } catch (error) {
     next(error);
   }
