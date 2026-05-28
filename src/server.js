@@ -160,10 +160,11 @@ async function getUniqueTrackingNumber() {
 
 // เพิ่ม helper function ใน server.js
 async function geocodeAddress(addressDetail, subdistrict, district, province, zipcode) {
+  // ลอง query หลายแบบเรียงจากละเอียดไปหยาบ
   const queries = [
-    `${subdistrict} ${district} ${province} Thailand`,
     `${district} ${province} Thailand`,
     `${province} Thailand`,
+    `${zipcode} Thailand`,
   ];
 
   for (const query of queries) {
@@ -181,7 +182,7 @@ async function geocodeAddress(addressDetail, subdistrict, district, province, zi
       const data = await response.json();
 
       if (data && data.length > 0) {
-        console.log('✅ Found:', data[0].lat, data[0].lon);
+        console.log('✅ Found with query:', query, data[0].lat, data[0].lon);
         return {
           latitude: parseFloat(data[0].lat),
           longitude: parseFloat(data[0].lon),
@@ -189,13 +190,15 @@ async function geocodeAddress(addressDetail, subdistrict, district, province, zi
       }
 
       console.log('⚠️ Not found:', query);
-      await new Promise((r) => setTimeout(r, 1100)); // rate limit
+
+      // Nominatim มี rate limit 1 request/sec
+      await new Promise((resolve) => setTimeout(resolve, 1100));
     } catch (e) {
-      console.error('❌ Geocode error:', e);
+      console.error('❌ Error:', e);
     }
   }
 
-  return null; // ไม่เจอพิกัด
+  return null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -577,8 +580,24 @@ app.post("/api/auth/register", async (req, res, next) => {
     const existingUser = await getUserByEmail(normalizedEmail);
     if (existingUser) throw createHttpError(409, "อีเมลนี้ถูกใช้งานแล้ว");
 
-    // ── geocode ก่อน สมัครสมาชิก ──
+    const hashedPassword = await bcrypt.hash(String(password), 12);
+
+    const { data: newUser, error: userError } = await supabase
+      .from("users")
+      .insert({
+        name: String(name ?? "").trim(),
+        email: normalizedEmail,
+        password: hashedPassword,
+        phone: String(phone ?? "").trim(),
+        wallet: 0,
+      })
+      .select()
+      .single();
+
+    if (userError) throw userError;
+
     if (address) {
+      // ── geocode address ก่อน insert ──
       const coords = await geocodeAddress(
         address.address_detail,
         address.subdistrict,
@@ -586,27 +605,6 @@ app.post("/api/auth/register", async (req, res, next) => {
         address.province,
         address.zipcode,
       );
-
-      // ถ้าหาพิกัดไม่ได้ → reject ทันที ไม่ต้อง insert อะไรเลย
-      if (!coords) {
-        throw createHttpError(400, "ที่อยู่ไม่ถูกต้อง กรุณากรอกที่อยู่ใหม่อีกครั้ง");
-      }
-
-      const hashedPassword = await bcrypt.hash(String(password), 12);
-
-      const { data: newUser, error: userError } = await supabase
-        .from("users")
-        .insert({
-          name: String(name ?? "").trim(),
-          email: normalizedEmail,
-          password: hashedPassword,
-          phone: String(phone ?? "").trim(),
-          wallet: 0,
-        })
-        .select()
-        .single();
-
-      if (userError) throw userError;
 
       const { error: addressError } = await supabase.from("address").insert({
         user_id: newUser.user_id,
@@ -617,18 +615,15 @@ app.post("/api/auth/register", async (req, res, next) => {
         zipcode: String(address.zipcode ?? "").trim(),
         label: String(address.label ?? "บ้าน").trim(),
         is_default: true,
-        latitude: coords.latitude,
-        longitude: coords.longitude,
+        latitude: coords?.latitude ?? null,   // ← เพิ่ม
+        longitude: coords?.longitude ?? null, // ← เพิ่ม
       });
 
       if (addressError) throw addressError;
-
-      const { password: _password, ...safeUser } = newUser;
-      return res.status(201).json(safeUser);
     }
 
-    // ไม่มี address เลย
-    throw createHttpError(400, "กรุณากรอกที่อยู่");
+    const { password: _password, ...safeUser } = newUser;
+    res.status(201).json(safeUser);
   } catch (error) {
     next(error);
   }
@@ -659,35 +654,16 @@ app.post("/api/auth/login", async (req, res, next) => {
 // Address Routes
 // ─────────────────────────────────────────────────────────────────────────────
 
-app.post("/api/addresses", async (req, res, next) => {
+app.get("/api/addresses/user/:userId", async (req, res, next) => {
   try {
-    const { user_id, address_detail, province, district, subdistrict, zipcode, label } = req.body;
-
-    const coords = await geocodeAddress(address_detail, subdistrict, district, province, zipcode);
-
-    if (!coords) {
-      throw createHttpError(400, "ที่อยู่ไม่ถูกต้อง กรุณากรอกที่อยู่ใหม่อีกครั้ง");
-    }
-
     const { data, error } = await supabase
       .from("address")
-      .insert({
-        user_id,
-        address_detail,
-        province,
-        district,
-        subdistrict,
-        zipcode,
-        label: label || "บ้าน",
-        is_default: false,
-        latitude: coords.latitude,
-        longitude: coords.longitude,
-      })
       .select()
-      .single();
+      .eq("user_id", Number(req.params.userId))
+      .order("is_default", { ascending: false });
 
     if (error) throw error;
-    res.status(201).json(data);
+    res.json(data ?? []);
   } catch (error) {
     next(error);
   }
