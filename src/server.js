@@ -366,98 +366,243 @@ app.get("/api/shipments", async (req, res) => {
 
 app.post("/api/shipments/confirm", async (req, res, next) => {
   try {
-    const { senderId, receiverId, requestId, parcelId, parcelWeight, quantity, receiverAddress } = req.body;
+    const {
+      senderId,
+      receiverId,
+      requestId,
+      parcelId,
+      parcelWeight,
+      quantity,
+      receiverAddress,
+    } = req.body;
 
-    const senderAddress = await getPrimaryAddress(senderId);
-    const senderDetail = buildAddressText(senderAddress);
-    const trackingNumber = await getUniqueTrackingNumber();
+    // ─────────────────────────────
+    // คำนวณค่าส่ง
+    // ─────────────────────────────
+    const shippingCost = calculateShippingCost(
+      Number(parcelWeight),
+    );
+
+    // ─────────────────────────────
+    // เช็ค wallet ผู้ส่ง
+    // ─────────────────────────────
+    const senderUser = await getUserById(senderId);
+
+    if (!senderUser) {
+      throw createHttpError(404, "ไม่พบผู้ใช้");
+    }
+
+    const currentWallet = Number(
+      senderUser.wallet || 0,
+    );
+
+    if (currentWallet < shippingCost) {
+      throw createHttpError(
+        400,
+        `ยอดเงินใน Wallet ไม่พอ (ค่าส่ง ${shippingCost} บาท)`
+      );
+    }
+
+    // ─────────────────────────────
+    // เตรียมข้อมูล shipment
+    // ─────────────────────────────
+    const senderAddress = await getPrimaryAddress(
+      senderId,
+    );
+
+    const senderDetail =
+      buildAddressText(senderAddress);
+
+    const trackingNumber =
+      await getUniqueTrackingNumber();
+
     const now = new Date();
-    const estimatedDelivery = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
 
-    // ── 1. หา branch ที่ตรงกับจังหวัดผู้ส่ง ──
-    const senderProvince = senderAddress?.province ?? null;
+    const estimatedDelivery = new Date(
+      now.getTime() +
+        3 * 24 * 60 * 60 * 1000,
+    );
+
+    // ─────────────────────────────
+    // หา branch ผู้ส่ง
+    // ─────────────────────────────
+    const senderProvince =
+      senderAddress?.province ?? null;
+
     let branchStart = null;
+
     if (senderProvince) {
-      const { data: branchStartRows } = await supabase
-        .from("branch")
-        .select("branch_id")
-        .ilike("address", `%${senderProvince}%`)
-        .limit(1);
-      branchStart = branchStartRows?.[0]?.branch_id ?? null;
+      const { data: branchStartRows } =
+        await supabase
+          .from("branch")
+          .select("branch_id")
+          .ilike(
+            "address",
+            `%${senderProvince}%`
+          )
+          .limit(1);
+
+      branchStart =
+        branchStartRows?.[0]?.branch_id ??
+        null;
     }
 
-    // ── 2. หา branch ที่ตรงกับจังหวัดผู้รับ ──
-    // receiverAddress คือ string เต็ม เช่น "123 ถ.xxx, ตำบล, อำเภอ, จังหวัด XXXXX"
-    // ดึงจังหวัดออกจาก address object ของผู้รับ
-    const receiverAddressRow = await getPrimaryAddress(receiverId);
-    const receiverProvince = receiverAddressRow?.province ?? null;
+    // ─────────────────────────────
+    // หา branch ผู้รับ
+    // ─────────────────────────────
+    const receiverAddressRow =
+      await getPrimaryAddress(receiverId);
+
+    const receiverProvince =
+      receiverAddressRow?.province ?? null;
+
     let branchEnd = null;
+
     if (receiverProvince) {
-      const { data: branchEndRows } = await supabase
-        .from("branch")
-        .select("branch_id")
-        .ilike("address", `%${receiverProvince}%`)
-        .limit(1);
-      branchEnd = branchEndRows?.[0]?.branch_id ?? null;
+      const { data: branchEndRows } =
+        await supabase
+          .from("branch")
+          .select("branch_id")
+          .ilike(
+            "address",
+            `%${receiverProvince}%`
+          )
+          .limit(1);
+
+      branchEnd =
+        branchEndRows?.[0]?.branch_id ??
+        null;
     }
 
-    // ── 3. สร้าง shipment ──
-    const { data: shipmentRows, error: insertShipmentError } = await supabase
+    // ─────────────────────────────
+    // หัก Wallet
+    // ─────────────────────────────
+    const newWallet =
+      currentWallet - shippingCost;
+
+    const { error: walletError } =
+      await supabase
+        .from("users")
+        .update({
+          wallet: newWallet,
+        })
+        .eq("user_id", senderId);
+
+    if (walletError) throw walletError;
+
+    // ─────────────────────────────
+    // สร้าง Shipment
+    // ─────────────────────────────
+    const {
+      data: shipmentRows,
+      error: insertShipmentError,
+    } = await supabase
       .from("shipment")
       .insert({
         sender_id: senderId,
         receiver_id: receiverId,
-        receiver_address: receiverAddress,
+        receiver_address:
+          receiverAddress,
         sender_detail: senderDetail,
-        shipping_cost: calculateShippingCost(Number(parcelWeight)),
+        shipping_cost: shippingCost,
         shipment_date: now.toISOString(),
-        estimated_delivery: estimatedDelivery.toISOString(),
+        estimated_delivery:
+          estimatedDelivery.toISOString(),
         status: "waiting_driver",
         tracking_number: trackingNumber,
         request_id: requestId,
       })
       .select();
 
-    if (insertShipmentError) throw insertShipmentError;
+    if (insertShipmentError)
+      throw insertShipmentError;
 
-    const newShipment = shipmentRows?.[0] ?? null;
+    const newShipment =
+      shipmentRows?.[0] ?? null;
 
-    // ── 4. สร้าง shipment_tracking พร้อม branch_start / branch_end ──
+    // ─────────────────────────────
+    // เพิ่ม payment history
+    // ─────────────────────────────
     if (newShipment) {
-      const { error: trackingError } = await supabase
-        .from("shipment_tracking")
-        .insert({
-          shipment_id: newShipment.shipment_id,
-          status: "waiting_driver",
-          note: "รอคนขับรับพัสดุ",
-          branch_start: branchStart,
-          branch_end: branchEnd,
-          timestamp: now.toISOString(),
-        });
+      const { error: paymentError } =
+        await supabase
+          .from("payment")
+          .insert({
+            shipment_id:
+              newShipment.shipment_id,
+            user_id: senderId,
+            amount: shippingCost,
+            method: "wallet",
+            status: "completed",
+          });
 
-      if (trackingError) throw trackingError;
+      if (paymentError)
+        throw paymentError;
     }
 
-    // ── 5. อัปเดต parcel และ request ──
-    const { error: updateParcelError } = await supabase
+    // ─────────────────────────────
+    // shipment tracking
+    // ─────────────────────────────
+    if (newShipment) {
+      const { error: trackingError } =
+        await supabase
+          .from("shipment_tracking")
+          .insert({
+            shipment_id:
+              newShipment.shipment_id,
+            status: "waiting_driver",
+            note: "รอคนขับรับพัสดุ",
+            branch_start: branchStart,
+            branch_end: branchEnd,
+            timestamp: now.toISOString(),
+          });
+
+      if (trackingError)
+        throw trackingError;
+    }
+
+    // ─────────────────────────────
+    // update parcel
+    // ─────────────────────────────
+    const {
+      error: updateParcelError,
+    } = await supabase
       .from("parcels")
       .update({ quantity })
       .eq("parcel_id", parcelId);
 
-    if (updateParcelError) throw updateParcelError;
+    if (updateParcelError)
+      throw updateParcelError;
 
-    const { error: updateRequestError } = await supabase
+    // ─────────────────────────────
+    // update request
+    // ─────────────────────────────
+    const {
+      error: updateRequestError,
+    } = await supabase
       .from("request")
-      .update({ status: "waiting_driver" })
+      .update({
+        status: "waiting_driver",
+      })
       .eq("request_id", requestId);
 
-    if (updateRequestError) throw updateRequestError;
+    if (updateRequestError)
+      throw updateRequestError;
 
-    res.status(201).json({ trackingNumber, shipment: newShipment });
+    // ─────────────────────────────
+    // success
+    // ─────────────────────────────
+    res.status(201).json({
+      trackingNumber,
+      shipment: newShipment,
+      remainingWallet: newWallet,
+    });
   } catch (error) {
     next(error);
   }
 });
+
+
 
 app.post("/api/shipments/:shipmentId/assign-driver", async (req, res) => {
   const shipmentId = Number(req.params.shipmentId);
