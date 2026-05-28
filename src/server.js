@@ -165,21 +165,25 @@ async function geocodeAddress(addressDetail, subdistrict, district, province, zi
     const encoded = encodeURIComponent(query);
     const url = `https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=1`;
 
+    console.log('🔍 Geocoding URL:', url); // ← ดู URL ที่ส่งไป
+
     const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'GangcurryApp/1.0',
-      },
+      headers: { 'User-Agent': 'ParcelDeliveryApp/1.0' },
     });
 
     const data = await response.json();
+    console.log('📍 Geocode result:', JSON.stringify(data)); // ← ดูผลลัพธ์
+
     if (data && data.length > 0) {
       return {
         latitude: parseFloat(data[0].lat),
         longitude: parseFloat(data[0].lon),
       };
     }
+    console.log('⚠️ ไม่พบพิกัด');
     return null;
-  } catch {
+  } catch (e) {
+    console.error('❌ Geocode error:', e); // ← ดู error
     return null;
   }
 }
