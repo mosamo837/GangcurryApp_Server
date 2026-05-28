@@ -4,8 +4,8 @@ import express from "express";
 import bcrypt from "bcrypt";
 import { createClient } from "@supabase/supabase-js";
 
-import promptpay from "promptpay-qr";
-import QRCode from "qrcode";
+const promptpay = require("promptpay-qr");
+const QRCode = require("qrcode");
 
 dotenv.config();
 
@@ -271,6 +271,54 @@ app.get("/api/shipments", async (req, res) => {
   }
 });
 
+// app.post("/api/shipments/confirm", async (req, res, next) => {
+//   try {
+//     const { senderId, receiverId, requestId, parcelId, parcelWeight, quantity, receiverAddress } = req.body;
+
+//     const senderAddress = await getPrimaryAddress(senderId);
+//     const senderDetail = buildAddressText(senderAddress);
+//     const trackingNumber = await getUniqueTrackingNumber();
+//     const now = new Date();
+//     const estimatedDelivery = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+
+//     const { data: shipmentRows, error: insertShipmentError } = await supabase
+//       .from("shipment")
+//       .insert({
+//         sender_id: senderId,
+//         receiver_id: receiverId,
+//         receiver_address: receiverAddress,
+//         sender_detail: senderDetail,
+//         shipping_cost: calculateShippingCost(Number(parcelWeight)),
+//         shipment_date: now.toISOString(),
+//         estimated_delivery: estimatedDelivery.toISOString(),
+//         status: "waiting_driver",
+//         tracking_number: trackingNumber,
+//         request_id: requestId,
+//       })
+//       .select();
+
+//     if (insertShipmentError) throw insertShipmentError;
+
+//     const { error: updateParcelError } = await supabase
+//       .from("parcels")
+//       .update({ quantity })
+//       .eq("parcel_id", parcelId);
+
+//     if (updateParcelError) throw updateParcelError;
+
+//     const { error: updateRequestError } = await supabase
+//       .from("request")
+//       .update({ status: "waiting_driver" })
+//       .eq("request_id", requestId);
+
+//     if (updateRequestError) throw updateRequestError;
+
+//     res.status(201).json({ trackingNumber, shipment: shipmentRows?.[0] ?? null });
+//   } catch (error) {
+//     next(error);
+//   }
+// });
+
 app.post("/api/shipments/confirm", async (req, res, next) => {
   try {
     const { senderId, receiverId, requestId, parcelId, parcelWeight, quantity, receiverAddress } = req.body;
@@ -281,6 +329,34 @@ app.post("/api/shipments/confirm", async (req, res, next) => {
     const now = new Date();
     const estimatedDelivery = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
 
+    // ── 1. หา branch ที่ตรงกับจังหวัดผู้ส่ง ──
+    const senderProvince = senderAddress?.province ?? null;
+    let branchStart = null;
+    if (senderProvince) {
+      const { data: branchStartRows } = await supabase
+        .from("branch")
+        .select("branch_id")
+        .ilike("address", `%${senderProvince}%`)
+        .limit(1);
+      branchStart = branchStartRows?.[0]?.branch_id ?? null;
+    }
+
+    // ── 2. หา branch ที่ตรงกับจังหวัดผู้รับ ──
+    // receiverAddress คือ string เต็ม เช่น "123 ถ.xxx, ตำบล, อำเภอ, จังหวัด XXXXX"
+    // ดึงจังหวัดออกจาก address object ของผู้รับ
+    const receiverAddressRow = await getPrimaryAddress(receiverId);
+    const receiverProvince = receiverAddressRow?.province ?? null;
+    let branchEnd = null;
+    if (receiverProvince) {
+      const { data: branchEndRows } = await supabase
+        .from("branch")
+        .select("branch_id")
+        .ilike("address", `%${receiverProvince}%`)
+        .limit(1);
+      branchEnd = branchEndRows?.[0]?.branch_id ?? null;
+    }
+
+    // ── 3. สร้าง shipment ──
     const { data: shipmentRows, error: insertShipmentError } = await supabase
       .from("shipment")
       .insert({
@@ -299,6 +375,25 @@ app.post("/api/shipments/confirm", async (req, res, next) => {
 
     if (insertShipmentError) throw insertShipmentError;
 
+    const newShipment = shipmentRows?.[0] ?? null;
+
+    // ── 4. สร้าง shipment_tracking พร้อม branch_start / branch_end ──
+    if (newShipment) {
+      const { error: trackingError } = await supabase
+        .from("shipment_tracking")
+        .insert({
+          shipment_id: newShipment.shipment_id,
+          status: "waiting_driver",
+          note: "รอคนขับรับพัสดุ",
+          branch_start: branchStart,
+          branch_end: branchEnd,
+          timestamp: now.toISOString(),
+        });
+
+      if (trackingError) throw trackingError;
+    }
+
+    // ── 5. อัปเดต parcel และ request ──
     const { error: updateParcelError } = await supabase
       .from("parcels")
       .update({ quantity })
@@ -313,7 +408,7 @@ app.post("/api/shipments/confirm", async (req, res, next) => {
 
     if (updateRequestError) throw updateRequestError;
 
-    res.status(201).json({ trackingNumber, shipment: shipmentRows?.[0] ?? null });
+    res.status(201).json({ trackingNumber, shipment: newShipment });
   } catch (error) {
     next(error);
   }
@@ -628,64 +723,6 @@ app.post("/api/wallet/confirm", async (req, res) => {
 
     res.json({
       success: true,
-    });
-  } catch (e) {
-    res.status(500).json({
-      error: e.message,
-    });
-  }
-});
-
-app.get("/api/wallet/history/:userId", async (req, res) => {
-  try {
-    const userId = req.params.userId;
-
-    const { data, error } = await supabase
-      .from("wallet_transaction")
-      .select("*")
-      .eq("user_id", userId)
-      .eq("type", "topup")
-      .order("created_at", {
-        ascending: false,
-      });
-
-    if (error) throw error;
-
-    res.json(data);
-  } catch (e) {
-    res.status(500).json({
-      error: e.message,
-    });
-  }
-});
-
-app.get("/api/wallet/qr/:transactionId", async (req, res) => {
-  try {
-    const transactionId = req.params.transactionId;
-
-    const { data, error } = await supabase
-      .from("wallet_transaction")
-      .select("*")
-      .eq("transaction_id", transactionId)
-      .single();
-
-    if (error || !data) {
-      return res.status(404).json({
-        error: "ไม่พบ transaction",
-      });
-    }
-
-    const payload = promptpay("0812345678", {
-      amount: Number(data.amount),
-    });
-
-    const qrCode = await QRCode.toDataURL(payload);
-
-    res.json({
-      qr_code: qrCode,
-      amount: data.amount,
-      transaction_id: data.transaction_id,
-      status: data.status,
     });
   } catch (e) {
     res.status(500).json({
