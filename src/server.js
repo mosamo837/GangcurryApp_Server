@@ -156,6 +156,32 @@ async function getUniqueTrackingNumber() {
   throw createHttpError(500, "ไม่สามารถสร้าง Tracking Number ได้");
 }
 
+// เพิ่ม helper function ใน server.js
+async function geocodeAddress(addressDetail, subdistrict, district, province, zipcode) {
+  try {
+    const query = `${addressDetail}, ${subdistrict}, ${district}, ${province}, ${zipcode}, Thailand`;
+    const encoded = encodeURIComponent(query);
+    const url = `https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=1`;
+
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'GangcurryApp/1.0',
+      },
+    });
+
+    const data = await response.json();
+    if (data && data.length > 0) {
+      return {
+        latitude: parseFloat(data[0].lat),
+        longitude: parseFloat(data[0].lon),
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Health Check
 // ─────────────────────────────────────────────────────────────────────────────
@@ -535,7 +561,6 @@ app.post("/api/auth/register", async (req, res, next) => {
     const existingUser = await getUserByEmail(normalizedEmail);
     if (existingUser) throw createHttpError(409, "อีเมลนี้ถูกใช้งานแล้ว");
 
-    // ✅ Hash password ด้วย bcrypt ฝั่ง server
     const hashedPassword = await bcrypt.hash(String(password), 12);
 
     const { data: newUser, error: userError } = await supabase
@@ -553,6 +578,15 @@ app.post("/api/auth/register", async (req, res, next) => {
     if (userError) throw userError;
 
     if (address) {
+      // ── geocode address ก่อน insert ──
+      const coords = await geocodeAddress(
+        address.address_detail,
+        address.subdistrict,
+        address.district,
+        address.province,
+        address.zipcode,
+      );
+
       const { error: addressError } = await supabase.from("address").insert({
         user_id: newUser.user_id,
         address_detail: String(address.address_detail ?? "").trim(),
@@ -562,12 +596,13 @@ app.post("/api/auth/register", async (req, res, next) => {
         zipcode: String(address.zipcode ?? "").trim(),
         label: String(address.label ?? "บ้าน").trim(),
         is_default: true,
+        latitude: coords?.latitude ?? null,   // ← เพิ่ม
+        longitude: coords?.longitude ?? null, // ← เพิ่ม
       });
 
       if (addressError) throw addressError;
     }
 
-    // ✅ ไม่ส่ง password กลับไป
     const { password: _password, ...safeUser } = newUser;
     res.status(201).json(safeUser);
   } catch (error) {
@@ -618,11 +653,27 @@ app.get("/api/addresses/user/:userId", async (req, res, next) => {
 app.post("/api/addresses", async (req, res, next) => {
   try {
     const { user_id, address_detail, province, district, subdistrict, zipcode, label } = req.body;
+
+    // ── geocode แปลงที่อยู่เป็น lat/lng ──
+    const coords = await geocodeAddress(address_detail, subdistrict, district, province, zipcode);
+
     const { data, error } = await supabase
       .from("address")
-      .insert({ user_id, address_detail, province, district, subdistrict, zipcode, label: label || "บ้าน", is_default: false })
+      .insert({
+        user_id,
+        address_detail,
+        province,
+        district,
+        subdistrict,
+        zipcode,
+        label: label || "บ้าน",
+        is_default: false,
+        latitude: coords?.latitude ?? null,   // ← เพิ่ม
+        longitude: coords?.longitude ?? null, // ← เพิ่ม
+      })
       .select()
       .single();
+
     if (error) throw error;
     res.status(201).json(data);
   } catch (error) {
@@ -733,14 +784,51 @@ app.post("/api/wallet/confirm", async (req, res) => {
 
 app.patch("/api/addresses/:id", async (req, res, next) => {
   try {
+    const { address_detail, province, district, subdistrict, zipcode } = req.body;
+
+    // ── ถ้ามีการแก้ที่อยู่ ให้ geocode ใหม่ ──
+    let coordsUpdate = {};
+    if (address_detail || province || district || subdistrict || zipcode) {
+      // ดึงข้อมูลเดิมก่อน เพื่อ merge กับที่แก้
+      const { data: existing } = await supabase
+        .from("address")
+        .select()
+        .eq("address_id", req.params.id)
+        .single();
+
+      if (existing) {
+        const merged = {
+          address_detail: address_detail ?? existing.address_detail,
+          subdistrict: subdistrict ?? existing.subdistrict,
+          district: district ?? existing.district,
+          province: province ?? existing.province,
+          zipcode: zipcode ?? existing.zipcode,
+        };
+        const coords = await geocodeAddress(
+          merged.address_detail,
+          merged.subdistrict,
+          merged.district,
+          merged.province,
+          merged.zipcode,
+        );
+        if (coords) {
+          coordsUpdate = {
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+          };
+        }
+      }
+    }
+
     const { data, error } = await supabase
       .from("address")
-      .update(req.body)
+      .update({ ...req.body, ...coordsUpdate }) // ← merge lat/lng เข้าไป
       .eq("address_id", req.params.id)
       .select()
       .single();
+
     if (error) throw error;
-    res.json(data);
+    res.status(200).json(data);
   } catch (error) {
     next(error);
   }
@@ -1153,6 +1241,86 @@ app.get("/api/drivers", async (req, res) => {
     return res.json(data || []);
   } catch (error) {
     return res.status(500).json({ message: "Failed to fetch drivers", error: error.message });
+  }
+});
+
+// GET /api/requests/branch/:branchId — pending requests ของสาขานั้น
+app.get("/api/requests/branch/:branchId", async (req, res, next) => {
+  try {
+    const branchId = Number(req.params.branchId);
+
+    // หา shipment ที่มี branch_start หรือ branch_end ตรงกับสาขานี้
+    const { data: trackingRows, error: trackingError } = await supabase
+      .from("shipment_tracking")
+      .select("shipment_id")
+      .or(`branch_start.eq.${branchId},branch_end.eq.${branchId}`);
+
+    if (trackingError) throw trackingError;
+
+    const shipmentIds = [...new Set((trackingRows ?? []).map((r) => r.shipment_id))];
+
+    // ดึง request_id จาก shipment เหล่านั้น
+    let requestIdsFromShipment = [];
+    if (shipmentIds.length > 0) {
+      const { data: shipmentRows, error: shipmentError } = await supabase
+        .from("shipment")
+        .select("request_id")
+        .in("shipment_id", shipmentIds);
+
+      if (shipmentError) throw shipmentError;
+      requestIdsFromShipment = (shipmentRows ?? [])
+        .map((s) => s.request_id)
+        .filter((id) => id != null);
+    }
+
+    // ดึง requests ที่ status = pending และอยู่ใน requestIds
+    let query = supabase
+      .from("request")
+      .select("*, parcels(*), shipment(shipment_id, tracking_number, status)")
+      .eq("status", "pending");
+
+    if (requestIdsFromShipment.length > 0) {
+      query = query.in("request_id", requestIdsFromShipment);
+    } else {
+      // ไม่มี shipment tracking ของสาขานี้เลย → return empty
+      return res.json([]);
+    }
+
+    const { data, error } = await query.order("date", { ascending: false });
+    if (error) throw error;
+
+    res.json(data ?? []);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/shipments/branch/:branchId — shipments ทั้งหมดของสาขานั้น
+app.get("/api/shipments/branch/:branchId", async (req, res, next) => {
+  try {
+    const branchId = Number(req.params.branchId);
+
+    const { data: trackingRows, error: trackingError } = await supabase
+      .from("shipment_tracking")
+      .select("shipment_id")
+      .or(`branch_start.eq.${branchId},branch_end.eq.${branchId}`);
+
+    if (trackingError) throw trackingError;
+
+    const shipmentIds = [...new Set((trackingRows ?? []).map((r) => r.shipment_id))];
+
+    if (shipmentIds.length === 0) return res.json([]);
+
+    const { data, error } = await supabase
+      .from("shipment")
+      .select()
+      .in("shipment_id", shipmentIds)
+      .order("shipment_date", { ascending: false });
+
+    if (error) throw error;
+    res.json(data ?? []);
+  } catch (error) {
+    next(error);
   }
 });
 
