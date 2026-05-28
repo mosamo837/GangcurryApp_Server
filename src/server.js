@@ -161,18 +161,19 @@ async function getUniqueTrackingNumber() {
 // เพิ่ม helper function ใน server.js
 async function geocodeAddress(addressDetail, subdistrict, district, province, zipcode) {
   try {
-    const query = `${addressDetail}, ${subdistrict}, ${district}, ${province}, ${zipcode}, Thailand`;
+    // ── ลอง query แบบง่ายก่อน ใช้แค่ province + zipcode ──
+    const query = `${province}, ${zipcode}, Thailand`;
     const encoded = encodeURIComponent(query);
-    const url = `https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=1`;
+    const url = `https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=1&countrycodes=th&accept-language=th`;
 
-    console.log('🔍 Geocoding URL:', url); // ← ดู URL ที่ส่งไป
+    console.log('🔍 Geocoding URL:', url);
 
     const response = await fetch(url, {
       headers: { 'User-Agent': 'ParcelDeliveryApp/1.0' },
     });
 
     const data = await response.json();
-    console.log('📍 Geocode result:', JSON.stringify(data)); // ← ดูผลลัพธ์
+    console.log('📍 Geocode result:', JSON.stringify(data));
 
     if (data && data.length > 0) {
       return {
@@ -180,10 +181,30 @@ async function geocodeAddress(addressDetail, subdistrict, district, province, zi
         longitude: parseFloat(data[0].lon),
       };
     }
-    console.log('⚠️ ไม่พบพิกัด');
+
+    // ── fallback: ลอง query ด้วย province อย่างเดียว ──
+    const fallbackQuery = `${province} Thailand`;
+    const fallbackUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(fallbackQuery)}&format=json&limit=1&countrycodes=th`;
+
+    console.log('🔍 Fallback URL:', fallbackUrl);
+
+    const fallbackResponse = await fetch(fallbackUrl, {
+      headers: { 'User-Agent': 'ParcelDeliveryApp/1.0' },
+    });
+
+    const fallbackData = await fallbackResponse.json();
+    console.log('📍 Fallback result:', JSON.stringify(fallbackData));
+
+    if (fallbackData && fallbackData.length > 0) {
+      return {
+        latitude: parseFloat(fallbackData[0].lat),
+        longitude: parseFloat(fallbackData[0].lon),
+      };
+    }
+
     return null;
   } catch (e) {
-    console.error('❌ Geocode error:', e); // ← ดู error
+    console.error('❌ Geocode error:', e);
     return null;
   }
 }
