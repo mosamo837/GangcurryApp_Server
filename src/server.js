@@ -160,53 +160,45 @@ async function getUniqueTrackingNumber() {
 
 // เพิ่ม helper function ใน server.js
 async function geocodeAddress(addressDetail, subdistrict, district, province, zipcode) {
-  try {
-    // ── ลอง query แบบง่ายก่อน ใช้แค่ province + zipcode ──
-    const query = `${province}, ${zipcode}, Thailand`;
-    const encoded = encodeURIComponent(query);
-    const url = `https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=1&countrycodes=th&accept-language=th`;
+  // ลอง query หลายแบบเรียงจากละเอียดไปหยาบ
+  const queries = [
+    `${district} ${province} Thailand`,
+    `${province} Thailand`,
+    `${zipcode} Thailand`,
+  ];
 
-    console.log('🔍 Geocoding URL:', url);
+  for (const query of queries) {
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1&countrycodes=th`;
+      console.log('🔍 Trying:', query);
 
-    const response = await fetch(url, {
-      headers: { 'User-Agent': 'ParcelDeliveryApp/1.0' },
-    });
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'ParcelDeliveryApp/1.0',
+          'Accept': 'application/json',
+        },
+      });
 
-    const data = await response.json();
-    console.log('📍 Geocode result:', JSON.stringify(data));
+      const data = await response.json();
 
-    if (data && data.length > 0) {
-      return {
-        latitude: parseFloat(data[0].lat),
-        longitude: parseFloat(data[0].lon),
-      };
+      if (data && data.length > 0) {
+        console.log('✅ Found with query:', query, data[0].lat, data[0].lon);
+        return {
+          latitude: parseFloat(data[0].lat),
+          longitude: parseFloat(data[0].lon),
+        };
+      }
+
+      console.log('⚠️ Not found:', query);
+
+      // Nominatim มี rate limit 1 request/sec
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+    } catch (e) {
+      console.error('❌ Error:', e);
     }
-
-    // ── fallback: ลอง query ด้วย province อย่างเดียว ──
-    const fallbackQuery = `${province} Thailand`;
-    const fallbackUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(fallbackQuery)}&format=json&limit=1&countrycodes=th`;
-
-    console.log('🔍 Fallback URL:', fallbackUrl);
-
-    const fallbackResponse = await fetch(fallbackUrl, {
-      headers: { 'User-Agent': 'ParcelDeliveryApp/1.0' },
-    });
-
-    const fallbackData = await fallbackResponse.json();
-    console.log('📍 Fallback result:', JSON.stringify(fallbackData));
-
-    if (fallbackData && fallbackData.length > 0) {
-      return {
-        latitude: parseFloat(fallbackData[0].lat),
-        longitude: parseFloat(fallbackData[0].lon),
-      };
-    }
-
-    return null;
-  } catch (e) {
-    console.error('❌ Geocode error:', e);
-    return null;
   }
+
+  return null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
