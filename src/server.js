@@ -371,7 +371,7 @@ app.post("/api/shipments/confirm", async (req, res, next) => {
     const now = new Date();
     const estimatedDelivery = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
 
-    // ── 1. หา branch ของผู้ส่ง ──
+    // ── 1. หา branch ที่ตรงกับจังหวัดผู้ส่ง ──
     const senderProvince = senderAddress?.province ?? null;
     let branchStart = null;
     if (senderProvince) {
@@ -383,7 +383,9 @@ app.post("/api/shipments/confirm", async (req, res, next) => {
       branchStart = branchStartRows?.[0]?.branch_id ?? null;
     }
 
-    // ── 2. หา branch ของผู้รับ ──
+    // ── 2. หา branch ที่ตรงกับจังหวัดผู้รับ ──
+    // receiverAddress คือ string เต็ม เช่น "123 ถ.xxx, ตำบล, อำเภอ, จังหวัด XXXXX"
+    // ดึงจังหวัดออกจาก address object ของผู้รับ
     const receiverAddressRow = await getPrimaryAddress(receiverId);
     const receiverProvince = receiverAddressRow?.province ?? null;
     let branchEnd = null;
@@ -396,24 +398,7 @@ app.post("/api/shipments/confirm", async (req, res, next) => {
       branchEnd = branchEndRows?.[0]?.branch_id ?? null;
     }
 
-    // ── 3. คำนวณค่าจัดส่ง ──
-    const shippingCost = calculateShippingCost(Number(parcelWeight));
-
-    // ── 4. ตรวจสอบ wallet ของผู้ส่ง ──
-    const { data: senderData, error: senderError } = await supabase
-      .from("users")
-      .select("wallet")
-      .eq("user_id", senderId)
-      .single();
-
-    if (senderError) throw senderError;
-
-    const currentWallet = Number(senderData?.wallet ?? 0);
-    if (currentWallet < shippingCost) {
-      throw createHttpError(400, `ยอดเงินในกระเป๋าไม่เพียงพอ (มี ${currentWallet} บาท, ต้องการ ${shippingCost} บาท)`);
-    }
-
-    // ── 5. สร้าง shipment ──
+    // ── 3. สร้าง shipment ──
     const { data: shipmentRows, error: insertShipmentError } = await supabase
       .from("shipment")
       .insert({
@@ -421,7 +406,7 @@ app.post("/api/shipments/confirm", async (req, res, next) => {
         receiver_id: receiverId,
         receiver_address: receiverAddress,
         sender_detail: senderDetail,
-        shipping_cost: shippingCost,
+        shipping_cost: calculateShippingCost(Number(parcelWeight)),
         shipment_date: now.toISOString(),
         estimated_delivery: estimatedDelivery.toISOString(),
         status: "waiting_driver",
@@ -433,44 +418,24 @@ app.post("/api/shipments/confirm", async (req, res, next) => {
     if (insertShipmentError) throw insertShipmentError;
 
     const newShipment = shipmentRows?.[0] ?? null;
-    if (!newShipment) throw createHttpError(500, "สร้าง shipment ไม่สำเร็จ");
 
-    // ── 6. สร้าง shipment_tracking ──
-    const { error: trackingError } = await supabase
-      .from("shipment_tracking")
-      .insert({
-        shipment_id: newShipment.shipment_id,
-        status: "waiting_driver",
-        note: "รอคนขับรับพัสดุ",
-        branch_start: branchStart,
-        branch_end: branchEnd,
-        timestamp: now.toISOString(),
-      });
+    // ── 4. สร้าง shipment_tracking พร้อม branch_start / branch_end ──
+    if (newShipment) {
+      const { error: trackingError } = await supabase
+        .from("shipment_tracking")
+        .insert({
+          shipment_id: newShipment.shipment_id,
+          status: "waiting_driver",
+          note: "รอคนขับรับพัสดุ",
+          branch_start: branchStart,
+          branch_end: branchEnd,
+          timestamp: now.toISOString(),
+        });
 
-    if (trackingError) throw trackingError;
+      if (trackingError) throw trackingError;
+    }
 
-    // ── 7. หักเงิน wallet ผู้ส่ง ──
-    const { error: walletError } = await supabase
-      .from("users")
-      .update({ wallet: currentWallet - shippingCost })
-      .eq("user_id", senderId);
-
-    if (walletError) throw walletError;
-
-    // ── 8. บันทึก payment ──
-    const { error: paymentError } = await supabase
-      .from("payment")
-      .insert({
-        shipment_id: newShipment.shipment_id,
-        user_id: senderId,
-        amount: shippingCost,
-        method: "wallet",
-        status: "completed",
-      });
-
-    if (paymentError) throw paymentError;
-
-    // ── 9. อัปเดต parcel และ request ──
+    // ── 5. อัปเดต parcel และ request ──
     const { error: updateParcelError } = await supabase
       .from("parcels")
       .update({ quantity })
