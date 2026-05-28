@@ -7,6 +7,8 @@ import { createClient } from "@supabase/supabase-js";
 import promptpay from "promptpay-qr";
 import QRCode from "qrcode";
 
+import fetch from 'node-fetch';
+
 dotenv.config();
 
 const app = express();
