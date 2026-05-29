@@ -379,9 +379,9 @@ app.post("/api/shipments/confirm", async (req, res, next) => {
     // ─────────────────────────────
     // คำนวณค่าส่ง
     // ─────────────────────────────
-    const shippingCost = calculateShippingCost(
-      Number(parcelWeight),
-    );
+    const shippingCost = req.body.shippingCost != null
+  ? Number(req.body.shippingCost)
+  : calculateShippingCost(Number(parcelWeight));;
 
     // ─────────────────────────────
     // เช็ค wallet ผู้ส่ง
