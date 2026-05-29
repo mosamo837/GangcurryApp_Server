@@ -364,6 +364,41 @@ app.get("/api/shipments", async (req, res) => {
 //   }
 // });
 
+//upload return image
+app.post("/api/upload/return-image", async (req, res, next) => {
+  try {
+    const { base64, fileName, mimeType } = req.body;
+
+    if (!base64 || !fileName) {
+      return res.status(400).json({ error: "base64 and fileName are required" });
+    }
+
+    // แปลง base64 → Buffer
+    const buffer = Buffer.from(base64, "base64");
+
+    const filePath = `returns/${Date.now()}_${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("return-images")
+      .upload(filePath, buffer, {
+        contentType: mimeType || "image/jpeg",
+        upsert: false,
+      });
+
+    if (uploadError) throw uploadError;
+
+    // ดึง public URL
+    const { data: urlData } = supabase.storage
+      .from("return-images")
+      .getPublicUrl(filePath);
+
+    res.json({ url: urlData.publicUrl });
+  } catch (error) {
+    next(error);
+  }
+});
+
+//confirm shipment และหัก wallet พร้อมกัน
 app.post("/api/shipments/confirm", async (req, res, next) => {
   try {
     const {
