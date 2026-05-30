@@ -31,8 +31,7 @@ const supabase = createClient(supabaseUrl, supabaseKey, {
 });
 
 app.use(cors());
-app.use(express.json({ limit: '2mb' }));
-app.use(express.urlencoded({ limit: '2mb', extended: true }));
+app.use(express.json());
 
 // แปลง email ให้เป็น lowercase และตัด whitespace
 function normalizeEmail(email = "") {
@@ -369,11 +368,11 @@ app.get("/api/shipments", async (req, res) => {
 app.post("/api/driver/location", async (req, res, next) => {
   try {
     const { driverId, latitude, longitude, status = "delivering" } = req.body;
- 
+
     if (!driverId || latitude == null || longitude == null) {
       return res.status(400).json({ error: "driverId, latitude, longitude are required" });
     }
- 
+
     const { error } = await supabase
       .from("driver_location")
       .insert({
@@ -383,9 +382,9 @@ app.post("/api/driver/location", async (req, res, next) => {
         status,
         recorded_at: new Date().toISOString(),
       });
- 
+
     if (error) throw error;
- 
+
     return res.json({ ok: true });
   } catch (error) {
     next(error);
@@ -1594,21 +1593,60 @@ riderRouter.get("/parcels", async (req, res, next) => {
   try {
     const driverId = Number(req.query.driverId);
     if (!driverId) return res.status(400).json({ error: "driverId is required" });
-
-    const { data, error } = await supabase
+ 
+    // ① ดึง shipment พร้อม sender_id, receiver_id
+    const { data: shipments, error: shipmentError } = await supabase
       .from("shipment")
       .select(`
         shipment_id, tracking_number, status, receiver_address, sender_detail,
         shipping_cost, shipment_date, estimated_delivery, request_id,
+        sender_id, receiver_id,
         sender:users!shipment_sender_id_fkey(name, phone),
         receiver:users!shipment_receiver_id_fkey(name, phone),
         request(parcel_id, parcels(weight, width, height, length))
       `)
       .eq("driver_id", driverId)
       .order("shipment_date", { ascending: false });
-
-    if (error) throw error;
-    res.json(data ?? []);
+ 
+    if (shipmentError) throw shipmentError;
+    if (!shipments?.length) return res.json([]);
+ 
+    // ② รวบรวม user_id ที่ต้องการพิกัด (sender + receiver)
+    const userIds = [
+      ...new Set([
+        ...shipments.map((s) => s.sender_id),
+        ...shipments.map((s) => s.receiver_id),
+      ].filter(Boolean)),
+    ];
+ 
+    // ③ ดึง default address (latitude, longitude) ของแต่ละ user
+    const { data: addresses, error: addrError } = await supabase
+      .from("address")
+      .select("user_id, latitude, longitude, is_default")
+      .in("user_id", userIds)
+      .eq("is_default", true);
+ 
+    if (addrError) throw addrError;
+ 
+    // ④ สร้าง map user_id → { latitude, longitude }
+    const coordMap = {};
+    for (const addr of addresses ?? []) {
+      if (!coordMap[addr.user_id]) {
+        coordMap[addr.user_id] = {
+          latitude: addr.latitude ?? null,
+          longitude: addr.longitude ?? null,
+        };
+      }
+    }
+ 
+    // ⑤ แนบพิกัดเข้ากับแต่ละ shipment
+    const result = shipments.map((s) => ({
+      ...s,
+      sender_coords:   coordMap[s.sender_id]   ?? { latitude: null, longitude: null },
+      receiver_coords: coordMap[s.receiver_id] ?? { latitude: null, longitude: null },
+    }));
+ 
+    res.json(result);
   } catch (error) {
     next(error);
   }
@@ -1617,25 +1655,43 @@ riderRouter.get("/parcels", async (req, res, next) => {
 riderRouter.get("/parcels/tracking/:trackingNumber", async (req, res, next) => {
   try {
     const trackingNumber = String(req.params.trackingNumber ?? "").trim().toUpperCase();
-
+ 
     const { data, error } = await supabase
       .from("shipment")
       .select(`
         shipment_id, tracking_number, status, receiver_address, sender_detail,
         shipping_cost, shipment_date, estimated_delivery, request_id,
+        sender_id, receiver_id,
         sender:users!shipment_sender_id_fkey(name, phone),
         receiver:users!shipment_receiver_id_fkey(name, phone),
         request(parcel_id, parcels(weight, width, height, length))
       `)
       .ilike("tracking_number", trackingNumber)
       .limit(1);
-
+ 
     if (error) throw error;
-
+ 
     const shipment = data?.[0] ?? null;
     if (!shipment) throw createHttpError(404, "ไม่พบพัสดุ");
-
-    res.json(shipment);
+ 
+    // ดึงพิกัด sender + receiver
+    const userIds = [shipment.sender_id, shipment.receiver_id].filter(Boolean);
+    const { data: addresses } = await supabase
+      .from("address")
+      .select("user_id, latitude, longitude")
+      .in("user_id", userIds)
+      .eq("is_default", true);
+ 
+    const coordMap = {};
+    for (const addr of addresses ?? []) {
+      coordMap[addr.user_id] = { latitude: addr.latitude ?? null, longitude: addr.longitude ?? null };
+    }
+ 
+    res.json({
+      ...shipment,
+      sender_coords:   coordMap[shipment.sender_id]   ?? { latitude: null, longitude: null },
+      receiver_coords: coordMap[shipment.receiver_id] ?? { latitude: null, longitude: null },
+    });
   } catch (error) {
     next(error);
   }
