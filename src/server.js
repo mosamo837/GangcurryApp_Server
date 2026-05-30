@@ -368,23 +368,26 @@ app.get("/api/shipments", async (req, res) => {
 app.post("/api/driver/location", async (req, res, next) => {
   try {
     const { driverId, latitude, longitude, status = "delivering" } = req.body;
-
+ 
     if (!driverId || latitude == null || longitude == null) {
       return res.status(400).json({ error: "driverId, latitude, longitude are required" });
     }
-
+ 
     const { error } = await supabase
       .from("driver_location")
-      .insert({
-        did: Number(driverId),
-        latitude: Number(latitude),
-        longitude: Number(longitude),
-        status,
-        recorded_at: new Date().toISOString(),
-      });
-
+      .upsert(
+        {
+          did: Number(driverId),
+          latitude: Number(latitude),
+          longitude: Number(longitude),
+          status,
+          recorded_at: new Date().toISOString(),
+        },
+        { onConflict: "did" }   // ← upsert ตาม did แทน insert ใหม่
+      );
+ 
     if (error) throw error;
-
+ 
     return res.json({ ok: true });
   } catch (error) {
     next(error);
