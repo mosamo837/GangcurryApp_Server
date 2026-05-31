@@ -1013,12 +1013,29 @@ app.post("/api/wallet/confirm", async (req, res) => {
 
 app.patch("/api/addresses/:id", async (req, res, next) => {
   try {
-    const { address_detail, province, district, subdistrict, zipcode } = req.body;
+    const {
+      address_detail,
+      province,
+      district,
+      subdistrict,
+      zipcode,
+      label,
+      is_default,
+    } = req.body;
 
-    // ── ถ้ามีการแก้ที่อยู่ ให้ geocode ใหม่ ──
-    let coordsUpdate = {};
-    if (address_detail || province || district || subdistrict || zipcode) {
-      // ดึงข้อมูลเดิมก่อน เพื่อ merge กับที่แก้
+    // สร้าง payload เฉพาะ field ที่ส่งมา (ไม่ undefined)
+    const updatePayload = {};
+    if (address_detail !== undefined) updatePayload.address_detail = address_detail;
+    if (province !== undefined) updatePayload.province = province;
+    if (district !== undefined) updatePayload.district = district;
+    if (subdistrict !== undefined) updatePayload.subdistrict = subdistrict;
+    if (zipcode !== undefined) updatePayload.zipcode = zipcode;
+    if (label !== undefined) updatePayload.label = label;
+    if (is_default !== undefined) updatePayload.is_default = is_default;
+
+    // geocode ใหม่ถ้ามีการแก้ field ที่อยู่
+    const hasAddressChange = address_detail || province || district || subdistrict || zipcode;
+    if (hasAddressChange) {
       const { data: existing } = await supabase
         .from("address")
         .select()
@@ -1033,6 +1050,7 @@ app.patch("/api/addresses/:id", async (req, res, next) => {
           province: province ?? existing.province,
           zipcode: zipcode ?? existing.zipcode,
         };
+
         const coords = await geocodeAddress(
           merged.address_detail,
           merged.subdistrict,
@@ -1040,18 +1058,17 @@ app.patch("/api/addresses/:id", async (req, res, next) => {
           merged.province,
           merged.zipcode,
         );
+
         if (coords) {
-          coordsUpdate = {
-            latitude: coords.latitude,
-            longitude: coords.longitude,
-          };
+          updatePayload.latitude = coords.latitude;
+          updatePayload.longitude = coords.longitude;
         }
       }
     }
 
     const { data, error } = await supabase
       .from("address")
-      .update({ ...req.body, ...coordsUpdate }) // ← merge lat/lng เข้าไป
+      .update(updatePayload) // ← ใช้ updatePayload แทน ...req.body
       .eq("address_id", req.params.id)
       .select()
       .single();
