@@ -364,6 +364,28 @@ app.get("/api/shipments", async (req, res) => {
 //   }
 // });
 
+//รถเข็นดึงพัสดุที่ต้องได้รับ
+app.get("/api/shipments/incoming/:userId", async (req, res, next) => {
+  try {
+    const { data, error } = await supabase
+      .from("shipment")
+      .select(`
+        shipment_id, tracking_number, status,
+        receiver_address, sender_detail,
+        shipping_cost, shipment_date, estimated_delivery,
+        sender:users!shipment_sender_id_fkey(name, phone)
+      `)
+      .eq("receiver_id", Number(req.params.userId))
+      .neq("status", "delivered")
+      .order("shipment_date", { ascending: false });
+
+    if (error) throw error;
+    res.json(data ?? []);
+  } catch (error) {
+    next(error);
+  }
+});
+
 // POST /api/driver/location — บันทึกตำแหน่งคนขับ real-time
 app.post("/api/driver/location", async (req, res, next) => {
   try {
