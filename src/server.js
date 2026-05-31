@@ -364,6 +364,34 @@ app.get("/api/shipments", async (req, res) => {
 //   }
 // });
 
+//อัปเดตstatus received ว่าได้รับสินค้าแล้ว
+app.patch("/api/shipments/:shipmentId/received", async (req, res, next) => {
+  try {
+    const shipmentId = Number(req.params.shipmentId);
+
+    const { data, error } = await supabase
+      .from("shipment")
+      .update({ status: "received" })
+      .eq("shipment_id", shipmentId)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    // update request status ด้วย
+    if (data.request_id) {
+      await supabase
+        .from("request")
+        .update({ status: "received" })
+        .eq("request_id", data.request_id);
+    }
+
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
 //รถเข็นดึงพัสดุที่ต้องได้รับ
 app.get("/api/shipments/incoming/:userId", async (req, res, next) => {
   try {
@@ -373,10 +401,11 @@ app.get("/api/shipments/incoming/:userId", async (req, res, next) => {
         shipment_id, tracking_number, status,
         receiver_address, sender_detail,
         shipping_cost, shipment_date, estimated_delivery,
-        sender:users!shipment_sender_id_fkey(name, phone)
+        request_id,
+        sender:users!shipment_sender_id_fkey(name, phone),
+        request(parcel_id, parcels(parcel_id, weight, quantity))
       `)
       .eq("receiver_id", Number(req.params.userId))
-      .neq("status", "delivered")
       .order("shipment_date", { ascending: false });
 
     if (error) throw error;
