@@ -364,6 +364,65 @@ app.get("/api/shipments", async (req, res) => {
 //   }
 // });
 
+// upload delivery proof image (เหมือน return-image)
+app.post("/api/upload/proof-image", async (req, res, next) => {
+  try {
+    const { base64, fileName, mimeType } = req.body;
+
+    if (!base64 || !fileName) {
+      return res.status(400).json({ error: "base64 and fileName are required" });
+    }
+
+    const buffer = Buffer.from(base64, "base64");
+    const filePath = `proofs/${Date.now()}_${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("proof-images")          // bucket ชื่อ proof-images
+      .upload(filePath, buffer, {
+        contentType: mimeType || "image/jpeg",
+        upsert: false,
+      });
+
+    if (uploadError) throw uploadError;
+
+    const { data: urlData } = supabase.storage
+      .from("proof-images")
+      .getPublicUrl(filePath);
+
+    res.json({ url: urlData.publicUrl });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// บันทึก proof record หลังจัดส่งสำเร็จ
+app.post("/api/proof", async (req, res, next) => {
+  try {
+    const { shipmentId, image, note } = req.body;
+
+    if (!shipmentId) {
+      return res.status(400).json({ error: "shipmentId is required" });
+    }
+
+    const { data, error } = await supabase
+      .from("proof")
+      .insert({
+        shipment_id: Number(shipmentId),
+        image: image ?? null,
+        note: note ?? null,
+        status: "delivered",
+        date: new Date().toISOString(),
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.status(201).json(data);
+  } catch (error) {
+    next(error);
+  }
+});
+
 //อัปเดตstatus received ว่าได้รับสินค้าแล้ว
 app.patch("/api/shipments/:shipmentId/received", async (req, res, next) => {
   try {
