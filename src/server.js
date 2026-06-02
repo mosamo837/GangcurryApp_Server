@@ -377,7 +377,7 @@ app.post("/api/upload/proof-image", async (req, res, next) => {
     const filePath = `proofs/${Date.now()}_${fileName}`;
 
     const { error: uploadError } = await supabase.storage
-      .from("proof-images")          // bucket ชื่อ proof-images
+      .from("proof-images")  // ← ตรงนี้ ต้องตรงกับชื่อ bucket ใน Supabase
       .upload(filePath, buffer, {
         contentType: mimeType || "image/jpeg",
         upsert: false,
@@ -386,7 +386,7 @@ app.post("/api/upload/proof-image", async (req, res, next) => {
     if (uploadError) throw uploadError;
 
     const { data: urlData } = supabase.storage
-      .from("proof-images")
+      .from("proof-images")  // ← และตรงนี้ด้วย
       .getPublicUrl(filePath);
 
     res.json({ url: urlData.publicUrl });
