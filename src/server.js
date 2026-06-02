@@ -1300,6 +1300,71 @@ app.patch("/api/addresses/:id/default", async (req, res, next) => {
   }
 });
 
+app.post(
+  "/api/auth/reset-password",
+  async (req, res, next) => {
+    try {
+      const { email, newPassword } = req.body;
+
+      if (!email) {
+        throw createHttpError(
+          400,
+          "กรุณากรอกอีเมล"
+        );
+      }
+
+      if (
+        !newPassword ||
+        newPassword.length < 6
+      ) {
+        throw createHttpError(
+          400,
+          "รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร"
+        );
+      }
+
+      const user =
+        await getUserByEmail(
+          normalizeEmail(email)
+        );
+
+      if (!user) {
+        throw createHttpError(
+          404,
+          "ไม่พบผู้ใช้งาน"
+        );
+      }
+
+      const hashedPassword =
+        await bcrypt.hash(
+          String(newPassword),
+          12
+        );
+
+      const { error } =
+        await supabase
+          .from("users")
+          .update({
+            password: hashedPassword,
+          })
+          .eq(
+            "user_id",
+            user.user_id
+          );
+
+      if (error) throw error;
+
+      res.json({
+        success: true,
+        message:
+          "เปลี่ยนรหัสผ่านสำเร็จ",
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Branch Routes
 // ─────────────────────────────────────────────────────────────────────────────
