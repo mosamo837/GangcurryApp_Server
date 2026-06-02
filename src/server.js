@@ -368,6 +368,59 @@ app.get("/api/shipments", async (req, res) => {
 //   }
 // });
 
+//ถอนเงิน
+app.post("/api/driver/withdraw", async (req, res) => {
+  try {
+    const { driverId, amount } = req.body;
+
+    const { data: driver } = await supabase
+      .from("driver")
+      .select("wallet")
+      .eq("driver_id", driverId)
+      .single();
+
+    if (!driver) {
+      return res.status(404).json({
+        error: "ไม่พบคนขับ",
+      });
+    }
+
+    if (Number(driver.wallet) < Number(amount)) {
+      return res.status(400).json({
+        error: "ยอดเงินไม่พอ",
+      });
+    }
+
+    const newWallet =
+      Number(driver.wallet) - Number(amount);
+
+    await supabase
+      .from("driver")
+      .update({
+        wallet: newWallet,
+      })
+      .eq("driver_id", driverId);
+
+    await supabase
+      .from("wallet_transaction")
+      .insert({
+        amount,
+        type: "withdraw",
+        status: "completed",
+        driver_id: driverId,
+      });
+
+    res.json({
+      success: true,
+      wallet: newWallet,
+    });
+  } catch (e) {
+    res.status(500).json({
+      error: e.message,
+    });
+  }
+});
+
 // upload delivery proof image (เหมือน return-image)
 app.post("/api/upload/proof-image", async (req, res, next) => {
   try {
