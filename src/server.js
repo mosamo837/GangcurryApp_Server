@@ -1520,11 +1520,11 @@ app.post("/api/requests/:requestId/approve", async (req, res) => {
 
 app.post("/api/consignments", async (req, res, next) => {
   try {
-    const { userId, weight, width, height, length, reason = null, image = null, status = "pending", type = "consignment" } = req.body;
+    const { userId, weight, width, height, length, quantity = 1, reason = null, image = null, status = "pending", type = "consignment" } = req.body;
 
     const { data: parcel, error: parcelError } = await supabase
       .from("parcels")
-      .insert({ weight, width, height, length, status: "pending" })
+      .insert({ weight, width, height, length, quantity: Number(quantity), status: "pending" })
       .select()
       .single();
 
