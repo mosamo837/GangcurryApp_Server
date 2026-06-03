@@ -368,6 +368,55 @@ app.get("/api/shipments", async (req, res) => {
 //   }
 // });
 
+// อัปโหลดรูปโปรไฟล์ driver
+app.post("/api/upload/profile-image", async (req, res, next) => {
+  try {
+    const { base64, fileName, mimeType } = req.body;
+    if (!base64 || !fileName)
+      return res.status(400).json({ error: "base64 and fileName are required" });
+
+    const buffer = Buffer.from(base64, "base64");
+    const filePath = `profiles/${Date.now()}_${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("profile-images")          // ← สร้าง bucket นี้ใน Supabase ด้วย (public)
+      .upload(filePath, buffer, {
+        contentType: mimeType || "image/jpeg",
+        upsert: false,
+      });
+
+    if (uploadError) throw uploadError;
+
+    const { data: urlData } = supabase.storage
+      .from("profile-images")
+      .getPublicUrl(filePath);
+
+    res.json({ url: urlData.publicUrl });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// บันทึก URL ลงตาราง driver
+app.patch("/api/driver/:driverId/profile", async (req, res, next) => {
+  try {
+    const driverId = Number(req.params.driverId);
+    const { profileUrl } = req.body;
+
+    const { data, error } = await supabase
+      .from("driver")
+      .update({ profile: profileUrl })
+      .eq("driver_id", driverId)
+      .select("driver_id, name, email, phone, car_plate, wallet, profile")
+      .single();
+
+    if (error) throw error;
+    res.json(data);
+  } catch (error) {
+    next(error);
+  }
+});
+
 //ถอนเงิน
 app.post("/api/driver/withdraw", async (req, res) => {
   try {
