@@ -284,6 +284,8 @@ app.get("/api/shipments/track/:trackingNumber", async (req, res, next) => {
     const trackingList = (trackingRows ?? []).map((row) => ({
       ...row,
       branch: branchMap[resolveBranchId(row)] ?? null,
+      branch_start_detail: branchMap[row.branch_start] ?? null,  // เพิ่ม
+      branch_end_detail: branchMap[row.branch_end] ?? null,
     }));
 
     res.json({ shipment, trackingList });
