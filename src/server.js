@@ -216,6 +216,20 @@ app.get("/api/health", (_req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // Shipment Routes
 // ─────────────────────────────────────────────────────────────────────────────
+//ดึงข้อมูลuser
+app.get("/api/users", async (_req, res, next) => {
+  try {
+    const { data, error } = await supabase
+      .from("users")
+      .select("user_id, name, email, phone, wallet")
+      .order("user_id", { ascending: false });
+
+    if (error) throw error;
+    res.json(data || []);
+  } catch (error) {
+    next(error);
+  }
+});
 
 app.get("/api/shipments/summary/:trackingNumber", async (req, res, next) => {
   try {
