@@ -271,9 +271,9 @@ app.get("/api/shipments/track/:trackingNumber", async (req, res, next) => {
     let branchMap = {};
     if (branchIds.length > 0) {
       const { data: branchRows, error: branchError } = await supabase
-  .from("branch")
-  .select("branch_id, name, latitude, longitude, address")
-  .in("branch_id", branchIds);
+        .from("branch")
+        .select("branch_id, name, latitude, longitude, address")
+        .in("branch_id", branchIds);
 
       if (branchError) throw branchError;
       branchMap = Object.fromEntries(
