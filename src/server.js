@@ -231,6 +231,211 @@ app.get("/api/users", async (_req, res, next) => {
   }
 });
 
+// GET /api/shipment-tracking/branch/:branchId
+app.get('/api/shipment-tracking/branch/:branchId', async (req, res) => {
+  try {
+    const branchId = Number(req.params.branchId);
+
+    const { data, error } = await supabase
+      .from('shipment_tracking')
+      .select('*')
+      .or(`branch_start.eq.${branchId},branch_end.eq.${branchId}`)
+      .order('timestamp', { ascending: false });
+
+    if (error) throw error;
+
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({
+      message: err.message || 'Fetch shipment tracking failed',
+    });
+  }
+});
+
+// GET /api/shipments/tracking-branch/:branchId
+app.get('/api/shipments/tracking-branch/:branchId', async (req, res) => {
+  try {
+    const branchId = Number(req.params.branchId);
+
+    const { data: trackings, error: trackingError } = await supabase
+      .from('shipment_tracking')
+      .select('shipment_id')
+      .or(`branch_start.eq.${branchId},branch_end.eq.${branchId}`);
+
+    if (trackingError) throw trackingError;
+
+    const shipmentIds = [...new Set(trackings.map(t => t.shipment_id))];
+
+    if (shipmentIds.length === 0) {
+      return res.json([]);
+    }
+
+    const { data, error } = await supabase
+      .from('shipment')
+      .select('*')
+      .in('shipment_id', shipmentIds);
+
+    if (error) throw error;
+
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({
+      message: err.message || 'Fetch shipments by tracking branch failed',
+    });
+  }
+});
+
+/////////////////////////////////////////////////////////////////driver//////////////////////////////////////////////////
+// API แก้ไขข้อมูลไดรเวอร์
+app.post("/api/drivers", async (req, res, next) => {
+  try {
+    const {
+      bid,
+      name,
+      email,
+      password,
+      phone,
+      car_plate,
+      address,
+      national_id,
+      wallet = 0,
+      profile = null,
+    } = req.body;
+
+    const { data, error } = await supabase
+      .from("driver")
+      .insert({
+        bid: bid ?? null,
+        name,
+        email,
+        password,
+        phone,
+        car_plate,
+        address,
+        national_id,
+        wallet,
+        profile,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.status(201).json(data);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// API แก้ไขไดรเวอร์
+app.put("/api/drivers/:driverId", async (req, res, next) => {
+  try {
+    const { driverId } = req.params;
+
+    const allowed = [
+      "bid", "name", "email", "password", "phone",
+      "car_plate", "profile", "wallet", "address", "national_id",
+    ];
+
+    const updateData = {};
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) updateData[key] = req.body[key];
+    }
+
+    if (updateData.bid !== undefined && updateData.bid === undefined) {
+      updateData.bid = updateData.bid;
+      delete updateData.bid;
+    }
+
+    const { data, error } = await supabase
+      .from("driver")
+      .update(updateData)
+      .eq("driver_id", driverId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json(data);
+  } catch (error) {
+    next(error);
+  }
+});
+app.delete("/api/drivers/:driverId", async (req, res, next) => {
+  try {
+    const { driverId } = req.params;
+
+    const { error } = await supabase
+      .from("driver")
+      .delete()
+      .eq("driver_id", driverId);
+
+    if (error) throw error;
+    res.json({ message: "ลบ Driver สำเร็จ" });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch("/api/drivers/:driverId", async (req, res, next) => {
+  req.url = `/api/drivers/${req.params.driverId}`;
+  req.method = "PUT";
+  next();
+});
+// API ดึงตำแหน่งล่าสุดของไดรเวอร์ทั้งหมด
+app.get("/api/driver-locations", async (req, res, next) => {
+  try {
+    const status = String(req.query.status ?? "").trim();
+    const driverId = Number(req.query.driverId || req.query.did || 0);
+
+    let query = supabase
+      .from("driver_location")
+      .select("location_id, did, latitude, longitude, recorded_at, status")
+      .order("recorded_at", { ascending: false });
+
+    if (driverId) query = query.eq("did", driverId);
+    if (status) query = query.eq("status", status);
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const latestByDriver = [];
+    const seenDriverIds = new Set();
+    for (const location of data ?? []) {
+      if (seenDriverIds.has(location.did)) continue;
+      seenDriverIds.add(location.did);
+      latestByDriver.push(location);
+    }
+
+    res.json(latestByDriver);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// API ดึงตำแหน่งล่าสุดของไดรเวอร์รายคน
+app.get("/api/driver-locations/:driverId", async (req, res, next) => {
+  try {
+    const driverId = Number(req.params.driverId);
+    if (!driverId) return res.status(400).json({ error: "driverId is required" });
+
+    const { data, error } = await supabase
+      .from("driver_location")
+      .select("location_id, did, latitude, longitude, recorded_at, status")
+      .eq("did", driverId)
+      .order("recorded_at", { ascending: false })
+      .limit(1);
+
+    if (error) throw error;
+
+    const location = data?.[0] ?? null;
+    if (!location) throw createHttpError(404, "ไม่พบตำแหน่งไดรเวอร์");
+
+    res.json(location);
+  } catch (error) {
+    next(error);
+  }
+});
+
+
 app.get("/api/shipments/summary/:trackingNumber", async (req, res, next) => {
   try {
     const trackingNumber = String(req.params.trackingNumber ?? "").trim().toUpperCase();
@@ -401,6 +606,7 @@ app.get("/api/shipments", async (req, res) => {
 //     next(error);
 //   }
 // });
+
 
 // อัปโหลดรูปโปรไฟล์ driver
 app.post("/api/upload/profile-image", async (req, res, next) => {
