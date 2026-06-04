@@ -264,7 +264,9 @@ app.get("/api/shipments/track/:trackingNumber", async (req, res, next) => {
 
     const branchIds = [
       ...new Set(
-        (trackingRows ?? []).map(resolveBranchId).filter((id) => id != null),
+        (trackingRows ?? [])
+          .flatMap((r) => [r.branch_start, r.branch_end, resolveBranchId(r)])
+          .filter((id) => id != null),
       ),
     ];
 
@@ -277,18 +279,34 @@ app.get("/api/shipments/track/:trackingNumber", async (req, res, next) => {
 
       if (branchError) throw branchError;
       branchMap = Object.fromEntries(
-        (branchRows ?? []).map((branch) => [branch.branch_id, branch]),
+        (branchRows ?? []).map((b) => [b.branch_id, b]),
       );
     }
 
     const trackingList = (trackingRows ?? []).map((row) => ({
       ...row,
       branch: branchMap[resolveBranchId(row)] ?? null,
-      branch_start_detail: branchMap[row.branch_start] ?? null,  // เพิ่ม
+      branch_start_detail: branchMap[row.branch_start] ?? null,
       branch_end_detail: branchMap[row.branch_end] ?? null,
     }));
 
-    res.json({ shipment, trackingList });
+    // ─── เพิ่ม: หาพิกัดผู้รับ ───
+    let receiverCoords = null;
+    if (shipment.receiver_id) {
+      const { data: addrRows } = await supabase
+        .from("address")
+        .select("latitude, longitude")
+        .eq("user_id", shipment.receiver_id)
+        .eq("is_default", true)
+        .limit(1);
+
+      const addr = addrRows?.[0];
+      if (addr?.latitude && addr?.longitude) {
+        receiverCoords = { latitude: addr.latitude, longitude: addr.longitude };
+      }
+    }
+
+    res.json({ shipment, trackingList, receiver_coords: receiverCoords });
   } catch (error) {
     next(error);
   }
