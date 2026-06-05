@@ -231,6 +231,47 @@ app.get("/api/users", async (_req, res, next) => {
   }
 });
 
+// PATCH /api/users/:userId — อัปเดตข้อมูล user
+app.patch("/api/users/:userId", async (req, res, next) => {
+  try {
+    const userId = Number(req.params.userId);
+    const allowed = ["name", "email", "phone"];
+    const updateData = {};
+
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) {
+        updateData[key] = key === "email"
+          ? normalizeEmail(req.body[key])
+          : String(req.body[key]).trim();
+      }
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ error: "ไม่มีข้อมูลที่จะอัปเดต" });
+    }
+
+    // ตรวจ email ซ้ำ (ถ้ามีการเปลี่ยน email)
+    if (updateData.email) {
+      const existing = await getUserByEmail(updateData.email);
+      if (existing && existing.user_id !== userId) {
+        throw createHttpError(409, "อีเมลนี้ถูกใช้งานแล้ว");
+      }
+    }
+
+    const { data, error } = await supabase
+      .from("users")
+      .update(updateData)
+      .eq("user_id", userId)
+      .select("user_id, name, email, phone, wallet")
+      .single();
+
+    if (error) throw error;
+    res.json(data);
+  } catch (error) {
+    next(error);
+  }
+});
+
 // GET /api/shipment-tracking/branch/:branchId
 app.get('/api/shipment-tracking/branch/:branchId', async (req, res) => {
   try {
