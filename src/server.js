@@ -222,6 +222,7 @@ app.get("/api/users", async (_req, res, next) => {
     const { data, error } = await supabase
       .from("users")
       .select("user_id, name, email, phone, wallet")
+      .is("deleted_at", null)
       .order("user_id", { ascending: false });
 
     if (error) throw error;
@@ -1717,6 +1718,10 @@ app.post("/api/auth/login", async (req, res, next) => {
     const { email, password } = req.body;
 
     const user = await getUserByEmail(normalizeEmail(email));
+
+    if (user?.deleted_at) {
+      throw createHttpError(401, "บัญชีนี้ถูกระงับการใช้งาน");
+    }
 
     // ✅ ใช้ bcrypt.compare แทนการ query ตรง
     const isMatch = user && await bcrypt.compare(String(password ?? ""), user.password);
