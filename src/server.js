@@ -235,7 +235,7 @@ app.get("/api/users", async (_req, res, next) => {
 app.patch("/api/users/:userId", async (req, res, next) => {
   try {
     const userId = Number(req.params.userId);
-    const allowed = ["name", "email", "phone"];
+    const allowed = ["name", "email", "phone", "profile"];
     const updateData = {};
 
     for (const key of allowed) {
