@@ -272,6 +272,57 @@ app.patch("/api/users/:userId", async (req, res, next) => {
   }
 });
 
+// ── ประวัติการเติมเงิน
+app.get("/api/wallet/history/:userId", async (req, res, next) => {
+  try {
+    const userId = Number(req.params.userId);
+
+    const { data, error } = await supabase
+      .from("wallet_transaction")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("type", "topup")
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+    res.json(data ?? []);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ── ดึง QR ของ transaction ที่ pending อยู่
+app.get("/api/wallet/qr/:transactionId", async (req, res, next) => {
+  try {
+    const transactionId = Number(req.params.transactionId);
+
+    const { data: transaction, error } = await supabase
+      .from("wallet_transaction")
+      .select("*")
+      .eq("transaction_id", transactionId)
+      .single();
+
+    if (error || !transaction) {
+      throw createHttpError(404, "ไม่พบ transaction");
+    }
+
+    // สร้าง QR ใหม่จาก amount เดิม
+    const payload = promptpay("0855275914", {
+      amount: Number(transaction.amount),
+    });
+    const qrCode = await QRCode.toDataURL(payload);
+
+    res.json({
+      transaction_id: transaction.transaction_id,
+      amount: transaction.amount,
+      qr_code: qrCode,
+      status: transaction.status,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // GET /api/shipment-tracking/branch/:branchId
 app.get('/api/shipment-tracking/branch/:branchId', async (req, res) => {
   try {
