@@ -416,40 +416,49 @@ app.get('/api/shipments/tracking-branch/:branchId', async (req, res) => {
 // แก้ไข Shipment
 app.put("/api/shipment/:shipmentId", async (req, res, next) => {
   try {
-    const { shipmentId } = req.params;
+    const shipmentId = Number(req.params.shipmentId);
+    if (!Number.isInteger(shipmentId) || shipmentId <= 0) {
+      return res.status(400).json({ error: "shipmentId ไม่ถูกต้อง" });
+    }
 
     const {
-      status,
-      tracking_number,
-      sender_name,
-      sender_address,
-      // sender_phone,
-      receiver_name,
-      receiver_address,
-      // receiver_phone,
-      shipment_date,
-      shipping_cost,
+      sender_id,
+      receiver_id,
       driver_id,
-      // width,
-      // length,
-      // height,
+      receiver_address,
+      shipping_cost,
+      shipment_date,
+      estimated_delivery,
+      status,
+      note,
+      tracking_number,
+      request_id,
+      sender_detail,
     } = req.body;
 
     const updateData = {};
-    if (status !== undefined) updateData.status = status;
-    if (tracking_number !== undefined) updateData.tracking_number = tracking_number;
-    if (sender_name !== undefined) updateData.sender_name = sender_name;
-    if (sender_address !== undefined) updateData.sender_address = sender_address;
-    // if (sender_phone !== undefined) updateData.sender_phone = sender_phone;
-    if (receiver_name !== undefined) updateData.receiver_name = receiver_name;
+
+    if (sender_id !== undefined) updateData.sender_id = sender_id === null ? null : Number(sender_id);
+    if (receiver_id !== undefined) updateData.receiver_id = receiver_id === null ? null : Number(receiver_id);
+    if (driver_id !== undefined) updateData.driver_id = driver_id === null ? null : Number(driver_id);
+    if (request_id !== undefined) updateData.request_id = request_id === null ? null : Number(request_id);
+
     if (receiver_address !== undefined) updateData.receiver_address = receiver_address;
-    // if (receiver_phone !== undefined) updateData.receiver_phone = receiver_phone;
+    if (sender_detail !== undefined) updateData.sender_detail = sender_detail;
+    if (status !== undefined) updateData.status = status;
+    if (note !== undefined) updateData.note = note;
+    if (tracking_number !== undefined) updateData.tracking_number = tracking_number;
+
     if (shipment_date !== undefined) updateData.shipment_date = shipment_date;
-    if (shipping_cost !== undefined) updateData.shipping_cost = Number(shipping_cost);
-    if (driver_id !== undefined) updateData.driver_id = driver_id;
-    // if (width !== undefined) updateData.width = Number(width);
-    // if (length !== undefined) updateData.length = Number(length);
-    // if (height !== undefined) updateData.height = Number(height);
+    if (estimated_delivery !== undefined) updateData.estimated_delivery = estimated_delivery;
+
+    if (shipping_cost !== undefined && shipping_cost !== "") {
+      updateData.shipping_cost = Number(shipping_cost);
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ error: "ไม่มีข้อมูลสำหรับแก้ไข" });
+    }
 
     const { data, error } = await supabase
       .from("shipment")
@@ -462,6 +471,7 @@ app.put("/api/shipment/:shipmentId", async (req, res, next) => {
 
     res.json(data);
   } catch (error) {
+    console.error("Update shipment error:", error);
     next(error);
   }
 });
