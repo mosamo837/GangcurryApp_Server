@@ -276,30 +276,29 @@ app.patch("/api/users/:userId", async (req, res, next) => {
 app.delete("/api/users/:userId", async (req, res, next) => {
   try {
     const userId = Number(req.params.userId);
-    if (!Number.isInteger(userId) || userId <= 0) {
-      return res.status(400).json({ error: "userId ไม่ถูกต้อง" });
-    }
+
     const { data: existingUser, error: findError } = await supabase
       .from("users")
-      .select("user_id, name, email, phone")
+      .select("user_id, name, email")
       .eq("user_id", userId)
       .maybeSingle();
+
     if (findError) throw findError;
     if (!existingUser) {
       return res.status(404).json({ error: "ไม่พบผู้ใช้" });
     }
-    const { data: deletedUsers, error: deleteError } = await supabase
+
+    // soft delete — mark เวลาที่ลบ แทนการลบจริง
+    const { error } = await supabase
       .from("users")
-      .delete()
-      .eq("user_id", userId)
-      .select("user_id, name, email, phone");
-    if (deleteError) throw deleteError;
-    if (!deletedUsers || deletedUsers.length === 0) {
-      return res.status(404).json({ error: "ลบไม่สำเร็จ หรือไม่พบผู้ใช้" });
-    }
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("user_id", userId);
+
+    if (error) throw error;
+
     res.json({
       message: "ลบผู้ใช้สำเร็จ",
-      deleted: deletedUsers[0],
+      deleted: existingUser,
     });
   } catch (error) {
     next(error);
