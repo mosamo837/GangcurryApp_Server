@@ -607,6 +607,84 @@ app.get("/api/shipments", async (req, res) => {
 //   }
 // });
 
+// ลบ Request
+app.delete("/api/request/:requestId", async (req, res, next) => {
+  try {
+    const { requestId } = req.params;
+
+    // ถ้ามี shipment ผูกกับ request นี้ ให้ลบ shipment ก่อน
+    await supabase
+      .from("shipment")
+      .delete()
+      .eq("request_id", requestId);
+
+    const { error } = await supabase
+      .from("request")
+      .delete()
+      .eq("request_id", requestId);
+
+    if (error) throw error;
+
+    res.json({ message: "ลบ Request สำเร็จ" });
+  } catch (error) {
+    next(error);
+  }
+});
+
+//แก้ไขrequest
+app.put("/api/request/:requestId", async (req, res, next) => {
+  try {
+    const { requestId } = req.params;
+
+    const {
+      type,
+      status,
+      reason,
+      image,
+      receiver_id,
+      receiver_name,
+      receiver_phone,
+      receiver_address,
+    } = req.body;
+
+    const updateData = {};
+    if (type !== undefined) updateData.type = type;
+    if (status !== undefined) updateData.status = status;
+    if (reason !== undefined) updateData.reason = reason;
+    if (image !== undefined) updateData.image = image;
+    if (receiver_id !== undefined) updateData.receiver_id = receiver_id;
+    if (receiver_name !== undefined) updateData.receiver_name = receiver_name;
+    if (receiver_phone !== undefined) updateData.receiver_phone = receiver_phone;
+    if (receiver_address !== undefined) updateData.receiver_address = receiver_address;
+
+    const { data, error } = await supabase
+      .from("request")
+      .update(updateData)
+      .eq("request_id", requestId)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    res.json(data);
+  } catch (error) {
+    next(error);
+  }
+});
+
+//เลือกrequest
+app.get("/api/requests", async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("request")
+      .select("*, parcels(*), users(*, address(*)), shipment(shipment_id, tracking_number, status)");
+
+    if (error) throw error;
+    return res.json(data || []);
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to fetch return requests", error: error.message });
+  }
+});
 
 // อัปโหลดรูปโปรไฟล์ driver
 app.post("/api/upload/profile-image", async (req, res, next) => {
@@ -1701,46 +1779,54 @@ app.get("/api/requests/pending", async (req, res) => {
   }
 });
 
+// API อนุมัติคำขอและมอบหมายไดรเวอร์
 app.post("/api/requests/:requestId/approve", async (req, res) => {
   const requestId = Number(req.params.requestId);
   const driverId = Number(req.body?.driverId);
 
   if (!requestId || !driverId) {
-    return res.status(400).json({ message: "requestId and driverId are required" });
+    return res.status(400).json({
+      message: "requestId and driverId are required",
+    });
   }
 
   try {
-    const { data: requestData, error: requestError } = await supabase
-      .from("request")
-      .select("request_id, shipment(shipment_id)")
+    // หา shipment_id จาก request_id โดยตรง (วิธีของเวอร์ชันแรก — เสถียรกว่า)
+    const { data: shipmentData, error: shipmentFindError } = await supabase
+      .from("shipment")
+      .select("shipment_id")
       .eq("request_id", requestId)
-      .single();
+      .maybeSingle();
 
-    if (requestError) throw requestError;
+    if (shipmentFindError) throw shipmentFindError;
 
-    const shipmentRelation = requestData?.shipment;
-    let shipmentId = null;
-
-    if (Array.isArray(shipmentRelation) && shipmentRelation.length > 0) {
-      shipmentId = shipmentRelation[0]?.shipment_id ?? null;
-    } else if (shipmentRelation && typeof shipmentRelation === "object") {
-      shipmentId = shipmentRelation.shipment_id ?? null;
-    }
+    const shipmentId = shipmentData?.shipment_id;
 
     if (!shipmentId) {
-      return res.status(404).json({ message: "Shipment not found for this request" });
+      return res.status(404).json({
+        message: "Shipment not found",
+        shipmentId,
+        requestId,
+      });
     }
 
     const now = new Date();
     const estimatedDelivery = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
 
+    // อัปเดต shipment + ใส่ driverId (เพิ่มมาจากเวอร์ชันที่สอง)
     const { error: shipmentError } = await supabase
       .from("shipment")
-      .update({ driver_id: driverId, shipment_date: now.toISOString(), estimated_delivery: estimatedDelivery.toISOString(), status: "กำลังจัดส่ง" })
+      .update({
+        driver_id: driverId,
+        shipment_date: now.toISOString(),
+        estimated_delivery: estimatedDelivery.toISOString(),
+        status: "กำลังจัดส่ง",
+      })
       .eq("shipment_id", shipmentId);
 
     if (shipmentError) throw shipmentError;
 
+    // อัปเดต request
     const { error: approveError } = await supabase
       .from("request")
       .update({ status: "approved" })
@@ -1750,10 +1836,12 @@ app.post("/api/requests/:requestId/approve", async (req, res) => {
 
     return res.json({ success: true, requestId, shipmentId });
   } catch (error) {
-    return res.status(500).json({ message: "Failed to approve request", error: error.message });
+    return res.status(500).json({
+      message: "Failed to approve request",
+      error: error.message,
+    });
   }
 });
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Consignment & Return Routes
 // ─────────────────────────────────────────────────────────────────────────────
