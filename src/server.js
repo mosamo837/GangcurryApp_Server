@@ -272,6 +272,30 @@ app.patch("/api/users/:userId", async (req, res, next) => {
   }
 });
 
+// API ลบผู้ใช้
+app.delete("/api/users/:userId", async (req, res, next) => {
+  try {
+    const userId = Number(req.params.userId);
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({ error: "userId ไม่ถูกต้อง" });
+    }
+
+    const user = await getUserById(userId);
+    if (!user) throw createHttpError(404, "ไม่พบผู้ใช้");
+
+    const { error } = await supabase
+      .from("users")
+      .delete()
+      .eq("user_id", userId);
+
+    if (error) throw error;
+
+    res.json({ message: "ลบผู้ใช้สำเร็จ" });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // ── ประวัติการเติมเงิน
 app.get("/api/wallet/history/:userId", async (req, res, next) => {
   try {
@@ -322,6 +346,8 @@ app.get("/api/wallet/qr/:transactionId", async (req, res, next) => {
     next(error);
   }
 });
+
+
 
 // GET /api/shipment-tracking/branch/:branchId
 app.get('/api/shipment-tracking/branch/:branchId', async (req, res) => {
