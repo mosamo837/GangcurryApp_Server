@@ -1427,6 +1427,19 @@ app.post("/api/shipments/confirm", async (req, res, next) => {
 
       if (paymentError)
         throw paymentError;
+
+      const { error: txError } = await supabase
+          .from("wallet_transaction")
+          .insert({
+            user_id: senderId,
+            amount: shippingCost,
+            type: "shipping",        // แยกประเภทจาก topup
+            status: "completed",
+            note: `ค่าจัดส่ง ${newShipment.tracking_number}`,
+          });
+
+
+      if (txError) throw txError;
     }
 
     // ─────────────────────────────
