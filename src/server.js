@@ -326,6 +326,178 @@ app.get('/api/shipments/tracking-branch/:branchId', async (req, res) => {
   }
 });
 
+// แก้ไข Shipment
+app.put("/api/shipment/:shipmentId", async (req, res, next) => {
+  try {
+    const { shipmentId } = req.params;
+
+    const {
+      status,
+      tracking_number,
+      sender_name,
+      sender_address,
+      sender_phone,
+      receiver_name,
+      receiver_address,
+      receiver_phone,
+      shipment_date,
+      shipping_cost,
+      driver_id,
+      width,
+      length,
+      height,
+    } = req.body;
+
+    const updateData = {};
+    if (status !== undefined) updateData.status = status;
+    if (tracking_number !== undefined) updateData.tracking_number = tracking_number;
+    if (sender_name !== undefined) updateData.sender_name = sender_name;
+    if (sender_address !== undefined) updateData.sender_address = sender_address;
+    if (sender_phone !== undefined) updateData.sender_phone = sender_phone;
+    if (receiver_name !== undefined) updateData.receiver_name = receiver_name;
+    if (receiver_address !== undefined) updateData.receiver_address = receiver_address;
+    if (receiver_phone !== undefined) updateData.receiver_phone = receiver_phone;
+    if (shipment_date !== undefined) updateData.shipment_date = shipment_date;
+    if (shipping_cost !== undefined) updateData.shipping_cost = Number(shipping_cost);
+    if (driver_id !== undefined) updateData.driver_id = driver_id;
+    if (width !== undefined) updateData.width = Number(width);
+    if (length !== undefined) updateData.length = Number(length);
+    if (height !== undefined) updateData.height = Number(height);
+
+    const { data, error } = await supabase
+      .from("shipment")
+      .update(updateData)
+      .eq("shipment_id", shipmentId)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    res.json(data);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ลบ Shipment
+app.delete("/api/shipment/:shipmentId", async (req, res, next) => {
+  try {
+    const { shipmentId } = req.params;
+
+    // ลบข้อมูลลูกที่ผูก shipment ก่อน ถ้ามี foreign key
+    await supabase
+      .from("shipment_tracking")
+      .delete()
+      .eq("shipment_id", shipmentId);
+
+    await supabase
+      .from("payment")
+      .delete()
+      .eq("shipment_id", shipmentId);
+
+    const { error } = await supabase
+      .from("shipment")
+      .delete()
+      .eq("shipment_id", shipmentId);
+
+    if (error) throw error;
+
+    res.json({ message: "ลบ Shipment สำเร็จ" });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/shipments/:shipmentId/detail', async (req, res) => {
+  const shipmentId = Number(req.params.shipmentId);
+
+  if (!Number.isInteger(shipmentId)) {
+    return res.status(400).json({ message: "Invalid shipmentId" });
+  }
+
+  try {
+    const { data: shipment, error: shipmentError } = await supabase
+      .from("shipment")
+      .select(`
+        *,
+        sender:users!shipment_sender_id_fkey(*),
+        receiver:users!shipment_receiver_id_fkey(*),
+        driver:driver!shipment_driver_id_fkey(*),
+        request(
+          *,
+          parcels(*)
+        )
+      `)
+      .eq("shipment_id", shipmentId)
+      .maybeSingle();
+
+    if (shipmentError) throw shipmentError;
+    if (!shipment) {
+      return res.status(404).json({ message: "Shipment not found" });
+    }
+
+    const { data: proofs, error: proofError } = await supabase
+      .from("proof")
+      .select("*")
+      .eq("shipment_id", shipmentId);
+
+    if (proofError) throw proofError;
+
+    const parcel = shipment.request?.parcels ?? null;
+
+    return res.json({
+      ...shipment,
+      parcels: parcel ? [parcel] : [],
+      proofs: proofs || [],
+    });
+  } catch (error) {
+    console.error("GET /shipments/:shipmentId/detail error:", error);
+    return res.status(500).json({
+      message: "Failed to fetch shipment detail",
+      error: error.message,
+    });
+  }
+});
+
+// ดึง proof ตาม shipment_id
+app.get("/api/proofs/shipment/:shipmentId", async (req, res, next) => {
+  try {
+    const { shipmentId } = req.params;
+
+    const { data, error } = await supabase
+      .from("proof")
+      .select("*")
+      .eq("shipment_id", shipmentId)
+      .order("date", { ascending: false });
+
+    if (error) throw error;
+
+    res.json(data);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/proofs", async (req, res, next) => {
+  try {
+    const { shipmentId } = req.query;
+
+    let query = supabase.from("proof").select("*");
+
+    if (shipmentId) {
+      query = query.eq("shipment_id", shipmentId);
+    }
+
+    const { data, error } = await query.order("date", { ascending: false });
+
+    if (error) throw error;
+
+    res.json(data);
+  } catch (error) {
+    next(error);
+  }
+});
+
 /////////////////////////////////////////////////////////////////driver//////////////////////////////////////////////////
 // API แก้ไขข้อมูลไดรเวอร์
 app.post("/api/drivers", async (req, res, next) => {
