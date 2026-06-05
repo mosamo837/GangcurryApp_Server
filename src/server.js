@@ -423,10 +423,10 @@ app.put("/api/shipment/:shipmentId", async (req, res, next) => {
       tracking_number,
       sender_name,
       sender_address,
-      sender_phone,
+      // sender_phone,
       receiver_name,
       receiver_address,
-      receiver_phone,
+      // receiver_phone,
       shipment_date,
       shipping_cost,
       driver_id,
@@ -440,16 +440,16 @@ app.put("/api/shipment/:shipmentId", async (req, res, next) => {
     if (tracking_number !== undefined) updateData.tracking_number = tracking_number;
     if (sender_name !== undefined) updateData.sender_name = sender_name;
     if (sender_address !== undefined) updateData.sender_address = sender_address;
-    if (sender_phone !== undefined) updateData.sender_phone = sender_phone;
+    // if (sender_phone !== undefined) updateData.sender_phone = sender_phone;
     if (receiver_name !== undefined) updateData.receiver_name = receiver_name;
     if (receiver_address !== undefined) updateData.receiver_address = receiver_address;
-    if (receiver_phone !== undefined) updateData.receiver_phone = receiver_phone;
+    // if (receiver_phone !== undefined) updateData.receiver_phone = receiver_phone;
     if (shipment_date !== undefined) updateData.shipment_date = shipment_date;
     if (shipping_cost !== undefined) updateData.shipping_cost = Number(shipping_cost);
     if (driver_id !== undefined) updateData.driver_id = driver_id;
-    if (width !== undefined) updateData.width = Number(width);
-    if (length !== undefined) updateData.length = Number(length);
-    if (height !== undefined) updateData.height = Number(height);
+    // if (width !== undefined) updateData.width = Number(width);
+    // if (length !== undefined) updateData.length = Number(length);
+    // if (height !== undefined) updateData.height = Number(height);
 
     const { data, error } = await supabase
       .from("shipment")
