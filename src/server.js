@@ -281,7 +281,7 @@ app.get("/api/wallet/history/:userId", async (req, res, next) => {
       .from("wallet_transaction")
       .select("*")
       .eq("user_id", userId)
-      .eq("type", "topup")
+      // .eq("type", "topup")
       .order("created_at", { ascending: false });
 
     if (error) throw error;
