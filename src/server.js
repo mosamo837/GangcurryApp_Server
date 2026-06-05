@@ -430,9 +430,9 @@ app.put("/api/shipment/:shipmentId", async (req, res, next) => {
       shipment_date,
       shipping_cost,
       driver_id,
-      width,
-      length,
-      height,
+      // width,
+      // length,
+      // height,
     } = req.body;
 
     const updateData = {};
