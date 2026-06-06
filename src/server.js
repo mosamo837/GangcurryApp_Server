@@ -273,6 +273,26 @@ app.patch("/api/users/:userId", async (req, res, next) => {
   }
 });
 
+app.get('/api/driver/:driverId/wallet', async (req, res, next) => {
+  try {
+    const driverId = Number(req.params.driverId);
+
+    const { data, error } = await supabase
+      .from('driver')
+      .select('wallet')
+      .eq('driver_id', driverId)
+      .single();
+
+    if (error || !data) {
+      return res.status(404).json({ error: 'ไม่พบคนขับ' });
+    }
+
+    res.json({ wallet: data.wallet });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // API ลบผู้ใช้
 app.delete("/api/users/:userId", async (req, res, next) => {
   try {
