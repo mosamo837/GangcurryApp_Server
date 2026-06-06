@@ -2760,7 +2760,7 @@ riderRouter.patch("/parcels/:shipmentId/status", async (req, res, next) => {
         shipping_cost,
         shipment_date,
         estimated_delivery,
-        request_id
+        request_id,
         driver_id
       `)
       .single();
