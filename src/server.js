@@ -364,13 +364,13 @@ app.post('/api/driver/commission', async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // อัปเดต wallet driver
+    // ── 1. เพิ่ม wallet driver ──
     await client.query(
       `UPDATE driver SET wallet = wallet + $1 WHERE driver_id = $2`,
       [amount, driverId]
     );
 
-    // บันทึก transaction
+    // ── 2. บันทึกลง wallet_transaction ──
     await client.query(
       `INSERT INTO wallet_transaction (driver_id, amount, type, status, note)
        VALUES ($1, $2, 'commission', 'completed', $3)`,
