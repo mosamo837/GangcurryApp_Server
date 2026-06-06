@@ -888,26 +888,43 @@ app.get("/api/shipments/track/:trackingNumber", async (req, res, next) => {
     }));
 
     // ─── เพิ่ม: หาพิกัดผู้รับ ───
-    let receiverCoords = null;
-    if (shipment.receiver_id) {
-  // ลองหา default address ก่อน
-        const { data: addrRows } = await supabase
-            .from("address")
-            .select("latitude, longitude, is_default")
-            .eq("user_id", shipment.receiver_id)
-            .order("is_default", { ascending: false })  // default first
-            .limit(1); 
+    // ── แก้เป็น ── fallback ไปใช้พิกัด branchEnd ถ้า address ไม่มีพิกัด
+let receiverCoords = null;
+if (shipment.receiver_id) {
+  const { data: addrRows } = await supabase
+    .from("address")
+    .select("latitude, longitude, is_default")
+    .eq("user_id", shipment.receiver_id)
+    .order("is_default", { ascending: false })
+    .limit(1);
 
-        const addr = addrRows?.[0];
-        if (addr?.latitude && addr?.longitude) {
-          receiverCoords = { 
-              latitude: addr.latitude, 
-              longitude: addr.longitude 
-            };
-      }
+  const addr = addrRows?.[0];
+  if (addr?.latitude && addr?.longitude) {
+    receiverCoords = { 
+      latitude: addr.latitude, 
+      longitude: addr.longitude 
+    };
+  }
+}
+
+// ── fallback: ถ้ายังไม่มีพิกัด ให้ใช้พิกัด branchEnd ──
+if (!receiverCoords) {
+  // หา branchEnd จาก trackingList
+  const branchEndId = trackingList
+    .map(r => r.branch_end)
+    .find(id => id != null);
+
+  if (branchEndId && branchMap[branchEndId]) {
+    const b = branchMap[branchEndId];
+    const lat = parseFloat(b.latitude);
+    const lng = parseFloat(b.longitude);
+    if (!isNaN(lat) && !isNaN(lng)) {
+      receiverCoords = { latitude: lat, longitude: lng };
     }
+  }
+}
 
-    res.json({ shipment, trackingList, receiver_coords: receiverCoords });
+res.json({ shipment, trackingList, receiver_coords: receiverCoords });
   } catch (error) {
     next(error);
   }
