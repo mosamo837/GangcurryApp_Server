@@ -357,6 +357,36 @@ app.get("/api/wallet/qr/:transactionId", async (req, res, next) => {
   }
 });
 
+app.post('/api/driver/commission', async (req, res) => {
+  const { driverId, amount, shipmentId, note } = req.body;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // อัปเดต wallet driver
+    await client.query(
+      `UPDATE driver SET wallet = wallet + $1 WHERE driver_id = $2`,
+      [amount, driverId]
+    );
+
+    // บันทึก transaction
+    await client.query(
+      `INSERT INTO wallet_transaction (driver_id, amount, type, status, note)
+       VALUES ($1, $2, 'commission', 'completed', $3)`,
+      [driverId, amount, note ?? `commission shipment #${shipmentId}`]
+    );
+
+    await client.query('COMMIT');
+    res.json({ success: true, commission: amount });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
 
 
 // GET /api/shipment-tracking/branch/:branchId
