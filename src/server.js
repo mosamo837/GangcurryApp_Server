@@ -357,33 +357,51 @@ app.get("/api/wallet/qr/:transactionId", async (req, res, next) => {
   }
 });
 
-app.post('/api/driver/commission', async (req, res) => {
-  const { driverId, amount, shipmentId, note } = req.body;
-
-  const client = await pool.connect();
+app.post('/api/driver/commission', async (req, res, next) => {
   try {
-    await client.query('BEGIN');
+    const { driverId, amount, shipmentId, note } = req.body;
 
-    // ── 1. เพิ่ม wallet driver ──
-    await client.query(
-      `UPDATE driver SET wallet = wallet + $1 WHERE driver_id = $2`,
-      [amount, driverId]
-    );
+    if (!driverId || !amount) {
+      return res.status(400).json({ error: 'driverId and amount are required' });
+    }
 
-    // ── 2. บันทึกลง wallet_transaction ──
-    await client.query(
-      `INSERT INTO wallet_transaction (driver_id, amount, type, status, note)
-       VALUES ($1, $2, 'commission', 'completed', $3)`,
-      [driverId, amount, note ?? `commission shipment #${shipmentId}`]
-    );
+    // ── 1. ดึง wallet ปัจจุบัน ──
+    const { data: driver, error: fetchError } = await supabase
+      .from('driver')
+      .select('wallet')
+      .eq('driver_id', driverId)
+      .single();
 
-    await client.query('COMMIT');
-    res.json({ success: true, commission: amount });
-  } catch (err) {
-    await client.query('ROLLBACK');
-    res.status(500).json({ error: err.message });
-  } finally {
-    client.release();
+    if (fetchError || !driver) {
+      return res.status(404).json({ error: 'ไม่พบคนขับ' });
+    }
+
+    const newWallet = Number(driver.wallet || 0) + Number(amount);
+
+    // ── 2. เพิ่ม wallet driver ──
+    const { error: walletError } = await supabase
+      .from('driver')
+      .update({ wallet: newWallet })
+      .eq('driver_id', driverId);
+
+    if (walletError) throw walletError;
+
+    // ── 3. บันทึกลง wallet_transaction ──
+    const { error: txError } = await supabase
+      .from('wallet_transaction')
+      .insert({
+        driver_id: Number(driverId),
+        amount: Number(amount),
+        type: 'commission',
+        status: 'completed',
+        note: note ?? `commission shipment #${shipmentId}`,
+      });
+
+    if (txError) throw txError;
+
+    res.json({ success: true, commission: amount, wallet: newWallet });
+  } catch (error) {
+    next(error);
   }
 });
 
