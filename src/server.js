@@ -890,16 +890,20 @@ app.get("/api/shipments/track/:trackingNumber", async (req, res, next) => {
     // ─── เพิ่ม: หาพิกัดผู้รับ ───
     let receiverCoords = null;
     if (shipment.receiver_id) {
-      const { data: addrRows } = await supabase
-        .from("address")
-        .select("latitude, longitude")
-        .eq("user_id", shipment.receiver_id)
-        .eq("is_default", true)
-        .limit(1);
+  // ลองหา default address ก่อน
+        const { data: addrRows } = await supabase
+            .from("address")
+            .select("latitude, longitude, is_default")
+            .eq("user_id", shipment.receiver_id)
+            .order("is_default", { ascending: false })  // default first
+            .limit(1); 
 
-      const addr = addrRows?.[0];
-      if (addr?.latitude && addr?.longitude) {
-        receiverCoords = { latitude: addr.latitude, longitude: addr.longitude };
+        const addr = addrRows?.[0];
+        if (addr?.latitude && addr?.longitude) {
+          receiverCoords = { 
+              latitude: addr.latitude, 
+              longitude: addr.longitude 
+            };
       }
     }
 
