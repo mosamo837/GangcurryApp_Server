@@ -2630,7 +2630,7 @@ riderRouter.get("/parcels", async (req, res, next) => {
       .select(`
         shipment_id, tracking_number, status, receiver_address, sender_detail,
         shipping_cost, shipment_date, estimated_delivery, request_id,
-        sender_id, receiver_id,
+        sender_id, receiver_id, driver_id,
         sender:users!shipment_sender_id_fkey(name, phone),
         receiver:users!shipment_receiver_id_fkey(name, phone),
         request(parcel_id, parcels(weight, width, height, length))
@@ -2691,7 +2691,7 @@ riderRouter.get("/parcels/tracking/:trackingNumber", async (req, res, next) => {
       .select(`
         shipment_id, tracking_number, status, receiver_address, sender_detail,
         shipping_cost, shipment_date, estimated_delivery, request_id,
-        sender_id, receiver_id,
+        sender_id, receiver_id, driver_id,
         sender:users!shipment_sender_id_fkey(name, phone),
         receiver:users!shipment_receiver_id_fkey(name, phone),
         request(parcel_id, parcels(weight, width, height, length))
