@@ -232,6 +232,49 @@ app.get("/api/users", async (_req, res, next) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// User Routes
+// ─────────────────────────────────────────────────────────────────────────────
+
+app.get("/api/users/lookup", async (req, res, next) => {
+  try {
+    const user = req.query.email
+      ? await getUserByEmail(req.query.email)
+      : await getUserById(req.query.userId);
+
+    if (!user) return res.status(404).json({ error: "ไม่พบผู้ใช้" });
+
+    // ไม่ส่ง password กลับไปให้ client เด็ดขาด
+    const { password: _password, ...safeUser } = user;
+    res.json(safeUser);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/users/search", async (req, res, next) => {
+  try {
+    const query = String(req.query.q ?? "").trim();
+    const excludeUserId = Number(req.query.excludeUserId || 0);
+
+    if (!query) return res.json([]);
+
+    const { data, error } = await supabase
+      .from("users")
+      .select("user_id, name, email, phone")
+      .or(`name.ilike.%${query}%,email.ilike.%${query}%,phone.ilike.%${query}%`)
+      .is("deleted_at", null)
+      .limit(20);
+
+    if (error) throw error;
+
+    const results = (data ?? []).filter((item) => item.user_id !== excludeUserId);
+    res.json(results);
+  } catch (error) {
+    next(error);
+  }
+});
+
 // ดึงข้อมูล user รายคน
 app.get("/api/users/:userId", async (req, res, next) => {
   try {
@@ -1694,48 +1737,6 @@ app.post("/api/shipments/:shipmentId/assign-driver", async (req, res) => {
     return res.json({ success: true, shipmentId, requestId: requestId ?? null });
   } catch (error) {
     return res.status(500).json({ message: "Failed to assign driver", error: error.message });
-  }
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// User Routes
-// ─────────────────────────────────────────────────────────────────────────────
-
-app.get("/api/users/lookup", async (req, res, next) => {
-  try {
-    const user = req.query.email
-      ? await getUserByEmail(req.query.email)
-      : await getUserById(req.query.userId);
-
-    if (!user) return res.status(404).json({ error: "ไม่พบผู้ใช้" });
-
-    // ไม่ส่ง password กลับไปให้ client เด็ดขาด
-    const { password: _password, ...safeUser } = user;
-    res.json(safeUser);
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.get("/api/users/search", async (req, res, next) => {
-  try {
-    const query = String(req.query.q ?? "").trim();
-    const excludeUserId = Number(req.query.excludeUserId || 0);
-
-    if (!query) return res.json([]);
-
-    const { data, error } = await supabase
-      .from("users")
-      .select("user_id, name, email, phone")
-      .or(`name.ilike.%${query}%,email.ilike.%${query}%,phone.ilike.%${query}%`)
-      .limit(20);
-
-    if (error) throw error;
-
-    const results = (data ?? []).filter((item) => item.user_id !== excludeUserId);
-    res.json(results);
-  } catch (error) {
-    next(error);
   }
 });
 
