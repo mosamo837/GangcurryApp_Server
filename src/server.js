@@ -1673,17 +1673,17 @@ app.post("/api/shipments/confirm", async (req, res, next) => {
     // ─────────────────────────────
     // update request
     // ─────────────────────────────
-    const {
-      error: updateRequestError,
-    } = await supabase
-      .from("request")
-      .update({
-        status: "waiting_driver",
-      })
-      .eq("request_id", requestId);
+    // const {
+    //   error: updateRequestError,
+    // } = await supabase
+    //   .from("request")
+    //   .update({
+    //     status: "waiting_driver",
+    //   })
+    //   .eq("request_id", requestId);
 
-    if (updateRequestError)
-      throw updateRequestError;
+    // if (updateRequestError)
+    //   throw updateRequestError;
 
     // ─────────────────────────────
     // success
