@@ -125,10 +125,13 @@ async function getUserByEmail(email) {
 async function getUserById(userId) {
   if (!userId) return null;
 
+  const numericId = Number(userId); // ✅ แปลงเป็น number
+  if (isNaN(numericId)) return null;
+
   const { data, error } = await supabase
     .from("users")
     .select()
-    .eq("user_id", userId)
+    .eq("user_id", numericId) // ✅ ส่ง number ไม่ใช่ string
     .limit(1);
 
   if (error) throw error;
