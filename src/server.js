@@ -1591,7 +1591,7 @@ app.post("/api/shipments/confirm", async (req, res, next) => {
         shipment_date: now.toISOString(),
         estimated_delivery:
           estimatedDelivery.toISOString(),
-        status: "waiting_driver",
+        status: "pending",
         tracking_number: trackingNumber,
         request_id: requestId,
       })
