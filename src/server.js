@@ -1704,11 +1704,10 @@ app.post("/api/shipments/:shipmentId/assign-driver", async (req, res) => {
 app.get("/api/users/lookup", async (req, res, next) => {
   try {
     let user;
-    
     if (req.query.email) {
       user = await getUserByEmail(req.query.email);
     } else {
-      const userId = parseInt(req.query.userId, 10); // ✅ ใช้ parseInt แทน Number
+      const userId = parseInt(req.query.userId, 10); // ✅ แปลงเป็น int
       if (isNaN(userId)) {
         return res.status(400).json({ error: "userId ไม่ถูกต้อง" });
       }
