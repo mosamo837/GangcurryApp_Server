@@ -232,6 +232,22 @@ app.get("/api/users", async (_req, res, next) => {
   }
 });
 
+// ดึงข้อมูล user รายคน
+app.get("/api/users/:userId", async (req, res, next) => {
+  try {
+    const { data, error } = await supabase
+      .from("users")
+      .select("user_id, name, email, phone, wallet")
+      .eq("user_id", Number(req.params.userId))
+      .maybeSingle();
+
+    if (error) throw error;
+    res.json(data || []);
+  } catch (error) {
+    next(error);
+  }
+});
+
 // PATCH /api/users/:userId — อัปเดตข้อมูล user
 app.patch("/api/users/:userId", async (req, res, next) => {
   try {
