@@ -2215,21 +2215,21 @@ app.get("/api/requests/pending", async (req, res) => {
 // API อนุมัติคำขอและมอบหมายไดรเวอร์
 app.post("/api/requests/:requestId/approve", async (req, res) => {
   const requestId = Number(req.params.requestId);
-  const driverId = Number(req.body?.driverId);
 
-  if (!requestId || !driverId) {
+  if (!requestId) {
     return res.status(400).json({
-      message: "requestId and driverId are required",
+      message: "requestId is required",
     });
   }
 
   try {
-    // หา shipment_id จาก request_id โดยตรง (วิธีของเวอร์ชันแรก — เสถียรกว่า)
-    const { data: shipmentData, error: shipmentFindError } = await supabase
-      .from("shipment")
-      .select("shipment_id")
-      .eq("request_id", requestId)
-      .maybeSingle();
+    // หา shipment จาก request_id
+    const { data: shipmentData, error: shipmentFindError } =
+      await supabase
+        .from("shipment")
+        .select("shipment_id")
+        .eq("request_id", requestId)
+        .maybeSingle();
 
     if (shipmentFindError) throw shipmentFindError;
 
@@ -2244,16 +2244,18 @@ app.post("/api/requests/:requestId/approve", async (req, res) => {
     }
 
     const now = new Date();
-    const estimatedDelivery = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
 
-    // อัปเดต shipment + ใส่ driverId (เพิ่มมาจากเวอร์ชันที่สอง)
+    const estimatedDelivery = new Date(
+      now.getTime() + 3 * 24 * 60 * 60 * 1000
+    );
+
+    // อัปเดต shipment
     const { error: shipmentError } = await supabase
       .from("shipment")
       .update({
-        driver_id: driverId,
         shipment_date: now.toISOString(),
         estimated_delivery: estimatedDelivery.toISOString(),
-        status: "กำลังจัดส่ง",
+        status: "รอคนขับ",
       })
       .eq("shipment_id", shipmentId);
 
@@ -2262,12 +2264,19 @@ app.post("/api/requests/:requestId/approve", async (req, res) => {
     // อัปเดต request
     const { error: approveError } = await supabase
       .from("request")
-      .update({ status: "approved" })
+      .update({
+        status: "approved",
+      })
       .eq("request_id", requestId);
 
     if (approveError) throw approveError;
 
-    return res.json({ success: true, requestId, shipmentId });
+    return res.json({
+      success: true,
+      requestId,
+      shipmentId,
+    });
+
   } catch (error) {
     return res.status(500).json({
       message: "Failed to approve request",
