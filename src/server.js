@@ -1703,19 +1703,13 @@ app.post("/api/shipments/:shipmentId/assign-driver", async (req, res) => {
 
 app.get("/api/users/lookup", async (req, res, next) => {
   try {
-    let user;
-    if (req.query.email) {
-      user = await getUserByEmail(req.query.email);
-    } else {
-      const userId = parseInt(req.query.userId, 10); // ✅ แปลงเป็น int
-      if (isNaN(userId)) {
-        return res.status(400).json({ error: "userId ไม่ถูกต้อง" });
-      }
-      user = await getUserById(userId);
-    }
+    const user = req.query.email
+      ? await getUserByEmail(req.query.email)
+      : await getUserById(req.query.userId);
 
     if (!user) return res.status(404).json({ error: "ไม่พบผู้ใช้" });
 
+    // ไม่ส่ง password กลับไปให้ client เด็ดขาด
     const { password: _password, ...safeUser } = user;
     res.json(safeUser);
   } catch (error) {
