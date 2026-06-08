@@ -983,7 +983,26 @@ if (!receiverCoords) {
   }
 }
 
-res.json({ shipment, trackingList, receiver_coords: receiverCoords });
+// หาพิกัดผู้ส่ง
+let senderCoords = null;
+if (shipment.sender_id) {
+  const { data: senderAddrRows } = await supabase
+    .from("address")
+    .select("latitude, longitude, is_default")
+    .eq("user_id", shipment.sender_id)
+    .order("is_default", { ascending: false })
+    .limit(1);
+
+  const senderAddr = senderAddrRows?.[0];
+  if (senderAddr?.latitude && senderAddr?.longitude) {
+    senderCoords = {
+      latitude: senderAddr.latitude,
+      longitude: senderAddr.longitude,
+    };
+  }
+}
+
+res.json({ shipment, trackingList, receiver_coords: receiverCoords, sender_coords: senderCoords, });
   } catch (error) {
     next(error);
   }
