@@ -1083,6 +1083,102 @@ app.get("/api/shipments", async (req, res) => {
 //     next(error);
 //   }
 // });
+// shipping_rate API
+// table: shipping_rate(rate_id, min_weight, max_weight, base_price, price_per_km)
+
+app.get('/shipping_rate', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT rate_id, min_weight, max_weight, base_price, price_per_km
+      FROM shipping_rate
+      ORDER BY rate_id ASC
+    `);
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('GET /shipping_rate error:', err);
+    res.status(500).json({ message: 'โหลดเรทราคาค่าส่งไม่สำเร็จ' });
+  }
+});
+
+app.post('/shipping_rate', async (req, res) => {
+  try {
+    const minWeight = req.body.min_weight ?? req.body.minWeight;
+    const maxWeight = req.body.max_weight ?? req.body.maxWeight;
+    const basePrice = req.body.base_price ?? req.body.basePrice;
+    const pricePerKm = req.body.price_per_km ?? req.body.pricePerKm;
+
+    const result = await pool.query(
+      `
+      INSERT INTO shipping_rate (min_weight, max_weight, base_price, price_per_km)
+      VALUES ($1, $2, $3, $4)
+      RETURNING rate_id, min_weight, max_weight, base_price, price_per_km
+      `,
+      [minWeight, maxWeight, basePrice, pricePerKm]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('POST /shipping_rate error:', err);
+    res.status(500).json({ message: 'เพิ่มเรทราคาค่าส่งไม่สำเร็จ' });
+  }
+});
+
+app.put('/shipping_rate/:rateId', async (req, res) => {
+  try {
+    const { rateId } = req.params;
+    const minWeight = req.body.min_weight ?? req.body.minWeight;
+    const maxWeight = req.body.max_weight ?? req.body.maxWeight;
+    const basePrice = req.body.base_price ?? req.body.basePrice;
+    const pricePerKm = req.body.price_per_km ?? req.body.pricePerKm;
+
+    const result = await pool.query(
+      `
+      UPDATE shipping_rate
+      SET min_weight = $1,
+          max_weight = $2,
+          base_price = $3,
+          price_per_km = $4
+      WHERE rate_id = $5
+      RETURNING rate_id, min_weight, max_weight, base_price, price_per_km
+      `,
+      [minWeight, maxWeight, basePrice, pricePerKm, rateId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'ไม่พบเรทราคาค่าส่งนี้' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('PUT /shipping_rate/:rateId error:', err);
+    res.status(500).json({ message: 'แก้ไขเรทราคาค่าส่งไม่สำเร็จ' });
+  }
+});
+
+app.delete('/shipping_rate/:rateId', async (req, res) => {
+  try {
+    const { rateId } = req.params;
+
+    const result = await pool.query(
+      `
+      DELETE FROM shipping_rate
+      WHERE rate_id = $1
+      RETURNING rate_id
+      `,
+      [rateId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'ไม่พบเรทราคาค่าส่งนี้' });
+    }
+
+    res.json({ message: 'ลบเรทราคาค่าส่งสำเร็จ' });
+  } catch (err) {
+    console.error('DELETE /shipping_rate/:rateId error:', err);
+    res.status(500).json({ message: 'ลบเรทราคาค่าส่งไม่สำเร็จ' });
+  }
+});
 
 // ลบ Request
 app.delete("/api/request/:requestId", async (req, res, next) => {
