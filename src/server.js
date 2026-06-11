@@ -2900,7 +2900,7 @@ riderRouter.get("/parcels", async (req, res, next) => {
     const driverId = Number(req.query.driverId);
     if (!driverId) return res.status(400).json({ error: "driverId is required" });
 
-    // ① ดึง shipment พร้อม sender_id, receiver_id
+    // ① ดึง shipment
     const { data: shipments, error: shipmentError } = await supabase
       .from("shipment")
       .select(`
@@ -2917,7 +2917,7 @@ riderRouter.get("/parcels", async (req, res, next) => {
     if (shipmentError) throw shipmentError;
     if (!shipments?.length) return res.json([]);
 
-    // ② รวบรวม user_id ที่ต้องการพิกัด
+    // ② รวบรวม user_id
     const userIds = [
       ...new Set([
         ...shipments.map((s) => s.sender_id),
@@ -2925,88 +2925,62 @@ riderRouter.get("/parcels", async (req, res, next) => {
       ].filter(Boolean)),
     ];
 
-    // ③ ดึง default address ของแต่ละ user
+    // ③ ดึง address ของแต่ละ user (รวม province)
     const { data: addresses, error: addrError } = await supabase
       .from("address")
-      .select("user_id, latitude, longitude, is_default")
+      .select("user_id, latitude, longitude, province, is_default")
       .in("user_id", userIds)
       .eq("is_default", true);
 
     if (addrError) throw addrError;
 
-    // ④ สร้าง map user_id → { latitude, longitude }
+    // ④ สร้าง map user_id → { latitude, longitude, province }
     const coordMap = {};
     for (const addr of addresses ?? []) {
       if (!coordMap[addr.user_id]) {
         coordMap[addr.user_id] = {
-          latitude: addr.latitude ?? null,
+          latitude:  addr.latitude  ?? null,
           longitude: addr.longitude ?? null,
+          province:  addr.province  ?? null,
         };
       }
     }
 
-    // ⑤ ดึง shipment_tracking เพื่อหา branch_start และ branch_end
-    const shipmentIdList = shipments.map((s) => s.shipment_id);
+    // ⑤ ดึงสาขาทั้งหมด
+    const { data: allBranches } = await supabase
+      .from("branch")
+      .select("branch_id, name, latitude, longitude, address");
 
-    const { data: trackingRows } = await supabase
-      .from("shipment_tracking")
-      .select("shipment_id, branch_start, branch_end")
-      .in("shipment_id", shipmentIdList)
-      .order("timestamp", { ascending: true });
+    // ⑥ หาสาขาที่ตรงกับจังหวัด sender
+    const findBranchByProvince = (province) => {
+      if (!province) return null;
+      return (allBranches ?? []).find((b) =>
+        b.address?.toLowerCase().includes(province.toLowerCase())
+      ) ?? null;
+    };
 
-    // ⑥ map shipment_id → branch_start และ branch_end (เอา row แรกสุด)
-    const shipmentBranchStartMap = {};
-    const shipmentBranchEndMap = {};
-
-    for (const row of trackingRows ?? []) {
-      if (!shipmentBranchStartMap[row.shipment_id] && row.branch_start) {
-        shipmentBranchStartMap[row.shipment_id] = row.branch_start;
-      }
-      if (!shipmentBranchEndMap[row.shipment_id] && row.branch_end) {
-        shipmentBranchEndMap[row.shipment_id] = row.branch_end;
-      }
-    }
-
-    // ⑦ รวม branch_id ทั้งหมดที่ต้องดึงพิกัด
-    const allBranchIds = [
-      ...new Set([
-        ...Object.values(shipmentBranchStartMap),
-        ...Object.values(shipmentBranchEndMap),
-      ].filter(Boolean)),
-    ];
-
-    let branchMap = {};
-    if (allBranchIds.length > 0) {
-      const { data: branches } = await supabase
-        .from("branch")
-        .select("branch_id, name, latitude, longitude")
-        .in("branch_id", allBranchIds);
-
-      branchMap = Object.fromEntries(
-        (branches ?? []).map((b) => [b.branch_id, b])
-      );
-    }
-
-    // ⑧ แนบพิกัดทั้งหมดเข้า result
+    // ⑦ แนบพิกัดเข้า result
     const result = shipments.map((s) => {
-      const branchStartId = shipmentBranchStartMap[s.shipment_id];
-      const branchEndId   = shipmentBranchEndMap[s.shipment_id];
-      const branchStart   = branchStartId ? branchMap[branchStartId] : null;
-      const branchEnd     = branchEndId   ? branchMap[branchEndId]   : null;
+      const senderInfo   = coordMap[s.sender_id]   ?? {};
+      const receiverInfo = coordMap[s.receiver_id] ?? {};
+
+      // หาสาขาจากจังหวัดผู้ส่ง
+      const senderBranch = findBranchByProvince(senderInfo.province);
 
       return {
         ...s,
-        sender_coords:   coordMap[s.sender_id]   ?? { latitude: null, longitude: null },
-        receiver_coords: coordMap[s.receiver_id] ?? { latitude: null, longitude: null },
-        origin_branch: branchStart ? {
-          latitude:  branchStart.latitude,
-          longitude: branchStart.longitude,
-          name:      branchStart.name,
-        } : null,
-        destination_branch: branchEnd ? {
-          latitude:  branchEnd.latitude,
-          longitude: branchEnd.longitude,
-          name:      branchEnd.name,
+        sender_coords: {
+          latitude:  senderInfo.latitude  ?? null,
+          longitude: senderInfo.longitude ?? null,
+        },
+        receiver_coords: {
+          latitude:  receiverInfo.latitude  ?? null,
+          longitude: receiverInfo.longitude ?? null,
+        },
+        origin_branch: senderBranch ? {
+          latitude:  senderBranch.latitude,
+          longitude: senderBranch.longitude,
+          name:      senderBranch.name,
         } : null,
       };
     });
