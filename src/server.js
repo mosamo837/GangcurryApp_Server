@@ -540,6 +540,31 @@ app.get('/api/shipments/tracking-branch/:branchId', async (req, res) => {
   }
 });
 
+// GET /api/shipment-tracking — ดึงทั้งหมด หรือ filter ตาม shipment_id
+app.get("/api/shipment-tracking", async (req, res, next) => {
+  try {
+    const shipmentId = req.query.shipmentId
+      ? Number(req.query.shipmentId)
+      : null;
+
+    let query = supabase
+      .from("shipment_tracking")
+      .select("*")
+      .order("timestamp", { ascending: false });
+
+    if (shipmentId) {
+      query = query.eq("shipment_id", shipmentId);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    res.json(data ?? []);
+  } catch (error) {
+    next(error);
+  }
+});
+
 // แก้ไข Shipment
 app.put("/api/shipment/:shipmentId", async (req, res, next) => {
   try {
