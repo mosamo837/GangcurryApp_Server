@@ -2355,7 +2355,7 @@ app.post("/api/returns", async (req, res, next) => {
 
     const { error: updateShipmentError } = await supabase
       .from("shipment")
-      .update({ sender_id: currentUserId, receiver_id: oldSenderId, receiver_address: newReceiverAddress, sender_detail: newSenderDetail, status: "pending", driver_id: null })
+      .update({ sender_id: currentUserId, receiver_id: oldSenderId, receiver_address: newReceiverAddress, sender_detail: newSenderDetail, status: "กำลังจัดส่ง", driver_id: null })
       .eq("shipment_id", shipmentId);
 
     if (updateShipmentError) throw updateShipmentError;
