@@ -1776,6 +1776,20 @@ app.post("/api/auth/register", async (req, res, next) => {
     const existingUser = await getUserByEmail(normalizedEmail);
     if (existingUser) throw createHttpError(409, "อีเมลนี้ถูกใช้งานแล้ว");
 
+    const normalizedPhone = String(phone ?? "").trim();
+    if (normalizedPhone) {
+      const { data: phoneCheck } = await supabase
+        .from("users")
+        .select("user_id")
+        .eq("phone", normalizedPhone)
+        .is("deleted_at", null)
+        .limit(1);
+
+      if (phoneCheck?.length > 0) {
+        throw createHttpError(409, "เบอร์โทรนี้ถูกใช้งานแล้ว");
+      }
+    }
+
     const hashedPassword = await bcrypt.hash(String(password), 12);
 
     const { data: newUser, error: userError } = await supabase
