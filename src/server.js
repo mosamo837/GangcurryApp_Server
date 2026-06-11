@@ -2811,6 +2811,32 @@ riderRouter.get("/parcels", async (req, res, next) => {
  
     if (shipmentError) throw shipmentError;
     if (!shipments?.length) return res.json([]);
+    
+    const shipmentIds = shipments.map(
+      (s) => s.shipment_id,
+    );
+
+    const {
+        data: trackingRows,
+        error: trackingError,
+    } = await supabase
+    .from("shipment_tracking")
+    .select(
+      "shipment_id, branch_start, branch_end"
+    )
+    .in("shipment_id", shipmentIds);
+
+    if (trackingError) throw trackingError;
+
+    const trackingMap = {};
+
+    for (const t of trackingRows ?? []) {
+      trackingMap[t.shipment_id] = {
+        branch_start: t.branch_start,
+        branch_end: t.branch_end,
+      };
+    }
+    
  
     // ② รวบรวม user_id ที่ต้องการพิกัด (sender + receiver)
     const userIds = [
@@ -2842,10 +2868,30 @@ riderRouter.get("/parcels", async (req, res, next) => {
  
     // ⑤ แนบพิกัดเข้ากับแต่ละ shipment
     const result = shipments.map((s) => ({
-      ...s,
-      sender_coords:   coordMap[s.sender_id]   ?? { latitude: null, longitude: null },
-      receiver_coords: coordMap[s.receiver_id] ?? { latitude: null, longitude: null },
-    }));
+  ...s,
+
+  sender_coords:
+    coordMap[s.sender_id] ??
+    {
+      latitude: null,
+      longitude: null,
+    },
+
+  receiver_coords:
+    coordMap[s.receiver_id] ??
+    {
+      latitude: null,
+      longitude: null,
+    },
+
+  branch_start:
+    trackingMap[s.shipment_id]
+      ?.branch_start ?? null,
+
+  branch_end:
+    trackingMap[s.shipment_id]
+      ?.branch_end ?? null,
+}));
  
     res.json(result);
   } catch (error) {
