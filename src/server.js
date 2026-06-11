@@ -2342,7 +2342,7 @@ app.post("/api/returns", async (req, res, next) => {
 });
 
 //Shipment Rate Routes
-app.get('/shipping_rate', async (req, res) => {
+app.get('/api/shipping_rate', async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('shipping_rate')
@@ -2361,82 +2361,90 @@ app.get('/shipping_rate', async (req, res) => {
   }
 });
 
-app.post('/shipping_rate', async (req, res) => {
+app.post('/api/shipping_rate', async (req, res) => {
   try {
-    const minWeight = req.body.min_weight ?? req.body.minWeight;
-    const maxWeight = req.body.max_weight ?? req.body.maxWeight;
-    const basePrice = req.body.base_price ?? req.body.basePrice;
-    const pricePerKm = req.body.price_per_km ?? req.body.pricePerKm;
+    const {
+      min_weight,
+      max_weight,
+      base_price,
+      price_per_km,
+    } = req.body;
 
-    const result = await pool.query(
-      `
-      INSERT INTO shipping_rate (min_weight, max_weight, base_price, price_per_km)
-      VALUES ($1, $2, $3, $4)
-      RETURNING rate_id, min_weight, max_weight, base_price, price_per_km
-      `,
-      [minWeight, maxWeight, basePrice, pricePerKm]
-    );
+    const { data, error } = await supabase
+      .from('shipping_rate')
+      .insert({
+        min_weight,
+        max_weight,
+        base_price,
+        price_per_km,
+      })
+      .select()
+      .single();
 
-    res.status(201).json(result.rows[0]);
+    if (error) throw error;
+
+    res.status(201).json(data);
   } catch (err) {
-    console.error('POST /shipping_rate error:', err);
-    res.status(500).json({ message: 'เพิ่มเรทราคาค่าส่งไม่สำเร็จ' });
+    res.status(500).json({
+      message: 'เพิ่มเรทราคาค่าส่งไม่สำเร็จ',
+      error: err.message,
+    });
   }
 });
 
-app.put('/shipping_rate/:rateId', async (req, res) => {
+app.put('/api/shipping_rate/:rateId', async (req, res) => {
   try {
     const { rateId } = req.params;
-    const minWeight = req.body.min_weight ?? req.body.minWeight;
-    const maxWeight = req.body.max_weight ?? req.body.maxWeight;
-    const basePrice = req.body.base_price ?? req.body.basePrice;
-    const pricePerKm = req.body.price_per_km ?? req.body.pricePerKm;
 
-    const result = await pool.query(
-      `
-      UPDATE shipping_rate
-      SET min_weight = $1,
-          max_weight = $2,
-          base_price = $3,
-          price_per_km = $4
-      WHERE rate_id = $5
-      RETURNING rate_id, min_weight, max_weight, base_price, price_per_km
-      `,
-      [minWeight, maxWeight, basePrice, pricePerKm, rateId]
-    );
+    const {
+      min_weight,
+      max_weight,
+      base_price,
+      price_per_km,
+    } = req.body;
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'ไม่พบเรทราคาค่าส่งนี้' });
-    }
+    const { data, error } = await supabase
+      .from('shipping_rate')
+      .update({
+        min_weight,
+        max_weight,
+        base_price,
+        price_per_km,
+      })
+      .eq('rate_id', rateId)
+      .select()
+      .single();
 
-    res.json(result.rows[0]);
+    if (error) throw error;
+
+    res.json(data);
   } catch (err) {
-    console.error('PUT /shipping_rate/:rateId error:', err);
-    res.status(500).json({ message: 'แก้ไขเรทราคาค่าส่งไม่สำเร็จ' });
+    res.status(500).json({
+      message: 'แก้ไขเรทราคาค่าส่งไม่สำเร็จ',
+      error: err.message,
+    });
   }
 });
 
-app.delete('/shipping_rate/:rateId', async (req, res) => {
+app.delete('/api/shipping_rate/:rateId', async (req, res) => {
   try {
     const { rateId } = req.params;
 
-    const result = await pool.query(
-      `
-      DELETE FROM shipping_rate
-      WHERE rate_id = $1
-      RETURNING rate_id
-      `,
-      [rateId]
-    );
+    const { error } = await supabase
+      .from('shipping_rate')
+      .delete()
+      .eq('rate_id', rateId);
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'ไม่พบเรทราคาค่าส่งนี้' });
-    }
+    if (error) throw error;
 
-    res.json({ message: 'ลบเรทราคาค่าส่งสำเร็จ' });
+    res.json({
+      message: 'ลบเรทราคาค่าส่งสำเร็จ',
+    });
   } catch (err) {
-    console.error('DELETE /shipping_rate/:rateId error:', err);
-    res.status(500).json({ message: 'ลบเรทราคาค่าส่งไม่สำเร็จ' });
+    res.status(500).json({
+      message: 'ลบเรทราคาค่าส่งไม่สำเร็จ',
+      error: err.message,
+    });
   }
 });
 
