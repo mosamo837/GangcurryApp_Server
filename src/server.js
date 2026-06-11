@@ -2344,16 +2344,20 @@ app.post("/api/returns", async (req, res, next) => {
 //Shipment Rate Routes
 app.get('/shipping_rate', async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT rate_id, min_weight, max_weight, base_price, price_per_km
-      FROM shipping_rate
-      ORDER BY rate_id ASC
-    `);
+    const { data, error } = await supabase
+      .from('shipping_rate')
+      .select('*')
+      .order('rate_id');
 
-    res.json(result.rows);
+    if (error) throw error;
+
+    res.json(data);
   } catch (err) {
-    console.error('GET /shipping_rate error:', err);
-    res.status(500).json({ message: 'โหลดเรทราคาค่าส่งไม่สำเร็จ' });
+    console.error(err);
+    res.status(500).json({
+      message: 'โหลดเรทราคาค่าส่งไม่สำเร็จ',
+      error: err.message,
+    });
   }
 });
 
