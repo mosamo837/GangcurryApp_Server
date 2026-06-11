@@ -163,45 +163,207 @@ async function getUniqueTrackingNumber() {
 }
 
 // เพิ่ม helper function ใน server.js
+// async function geocodeAddress(addressDetail, subdistrict, district, province, zipcode) {
+//   // ลอง query หลายแบบเรียงจากละเอียดไปหยาบ
+//   const queries = [
+//     `${district} ${province} Thailand`,
+//     `${province} Thailand`,
+//     `${zipcode} Thailand`,
+//   ];
+
+//   for (const query of queries) {
+//     try {
+//       const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1&countrycodes=th`;
+//       console.log('🔍 Trying:', query);
+
+//       const response = await fetch(url, {
+//         headers: {
+//           'User-Agent': 'ParcelDeliveryApp/1.0',
+//           'Accept': 'application/json',
+//         },
+//       });
+
+//       const data = await response.json();
+
+//       if (data && data.length > 0) {
+//         console.log('✅ Found with query:', query, data[0].lat, data[0].lon);
+//         return {
+//           latitude: parseFloat(data[0].lat),
+//           longitude: parseFloat(data[0].lon),
+//         };
+//       }
+
+//       console.log('⚠️ Not found:', query);
+
+//       // Nominatim มี rate limit 1 request/sec
+//       await new Promise((resolve) => setTimeout(resolve, 1100));
+//     } catch (e) {
+//       console.error('❌ Error:', e);
+//     }
+//   }
+
+//   return null;
+// }
+
 async function geocodeAddress(addressDetail, subdistrict, district, province, zipcode) {
-  // ลอง query หลายแบบเรียงจากละเอียดไปหยาบ
+  // ── ลำดับ query จากละเอียด → หยาบ ──────────────────────────
   const queries = [
+    // 1. ละเอียดที่สุด: ตำบล + อำเภอ + จังหวัด (ภาษาไทย)
+    `ตำบล${subdistrict} อำเภอ${district} จังหวัด${province} ประเทศไทย`,
+    // 2. กลาง: อำเภอ + จังหวัด
+    `อำเภอ${district} จังหวัด${province} ประเทศไทย`,
+    // 3. หยาบ: จังหวัด อังกฤษ (Nominatim รู้จักดีกว่า)
     `${district} ${province} Thailand`,
+    // 4. หยาบสุด: แค่จังหวัด
     `${province} Thailand`,
-    `${zipcode} Thailand`,
   ];
 
+  // ── helper: เรียก Nominatim ครั้งเดียว ──────────────────────
+  async function tryNominatim(query) {
+    const url =
+      `https://nominatim.openstreetmap.org/search` +
+      `?q=${encodeURIComponent(query)}` +
+      `&format=json&limit=1&countrycodes=th`;
+
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'ParcelDeliveryApp/1.0',
+        Accept: 'application/json',
+      },
+    });
+    const data = await res.json();
+    return data?.[0] ?? null;
+  }
+
+  // ── 1–4: ลอง Nominatim ทีละ query ──────────────────────────
   for (const query of queries) {
     try {
-      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1&countrycodes=th`;
-      console.log('🔍 Trying:', query);
-
-      const response = await fetch(url, {
-        headers: {
-          'User-Agent': 'ParcelDeliveryApp/1.0',
-          'Accept': 'application/json',
-        },
-      });
-
-      const data = await response.json();
-
-      if (data && data.length > 0) {
-        console.log('✅ Found with query:', query, data[0].lat, data[0].lon);
+      console.log('🔍 Nominatim:', query);
+      const hit = await tryNominatim(query);
+      if (hit) {
+        console.log('✅ Nominatim found:', hit.lat, hit.lon, '| display:', hit.display_name);
         return {
-          latitude: parseFloat(data[0].lat),
-          longitude: parseFloat(data[0].lon),
+          latitude: parseFloat(hit.lat),
+          longitude: parseFloat(hit.lon),
         };
       }
-
-      console.log('⚠️ Not found:', query);
-
-      // Nominatim มี rate limit 1 request/sec
-      await new Promise((resolve) => setTimeout(resolve, 1100));
+      // Rate limit: 1 req/sec
+      await new Promise((r) => setTimeout(r, 1100));
     } catch (e) {
-      console.error('❌ Error:', e);
+      console.error('❌ Nominatim error:', e.message);
     }
   }
 
+  // ── 5: fallback รหัสไปรษณีย์ผ่าน Longdo (ฟรี ไม่ต้อง key) ──
+  if (zipcode) {
+    try {
+      console.log('🔍 Longdo zipcode fallback:', zipcode);
+      const url = `https://api.longdo.com/POIService/json/suggest?keyword=${zipcode}&locale=th`;
+      const res = await fetch(url, {
+        headers: { Accept: 'application/json' },
+      });
+      const data = await res.json();
+      const hit = data?.data?.[0];
+      if (hit?.lat && hit?.lon) {
+        console.log('✅ Longdo found:', hit.lat, hit.lon);
+        return {
+          latitude: parseFloat(hit.lat),
+          longitude: parseFloat(hit.lon),
+        };
+      }
+    } catch (e) {
+      console.error('❌ Longdo error:', e.message);
+    }
+  }
+
+  // ── 6: hardcode จากจังหวัด (offline สุดท้าย) ─────────────────
+  const PROVINCE_COORDS = {
+    'กรุงเทพมหานคร': [13.7563, 100.5018],
+    'กระบี่':        [8.0863,  98.9063],
+    'กาญจนบุรี':     [14.0023, 99.5328],
+    'กาฬสินธุ์':     [16.4314, 103.5058],
+    'กำแพงเพชร':     [16.4827, 99.5226],
+    'ขอนแก่น':       [16.4419, 102.8360],
+    'จันทบุรี':      [12.6113, 102.1045],
+    'ฉะเชิงเทรา':    [13.6904, 101.0779],
+    'ชลบุรี':        [13.3611, 100.9847],
+    'ชัยนาท':        [15.1851, 100.1251],
+    'ชัยภูมิ':       [15.8068, 102.0317],
+    'ชุมพร':         [10.4930, 99.1800],
+    'เชียงราย':      [19.9105, 99.8406],
+    'เชียงใหม่':     [18.7883, 98.9853],
+    'ตรัง':          [7.5593,  99.6114],
+    'ตราด':          [12.2428, 102.5175],
+    'ตาก':           [16.8798, 99.1257],
+    'นครนายก':       [14.2057, 101.2132],
+    'นครปฐม':        [13.8199, 100.0624],
+    'นครพนม':        [17.3920, 104.7693],
+    'นครราชสีมา':    [14.9799, 102.0978],
+    'นครศรีธรรมราช': [8.4321,  99.9631],
+    'นครสวรรค์':     [15.7030, 100.1374],
+    'นนทบุรี':       [13.8591, 100.5159],
+    'นราธิวาส':      [6.4255,  101.8253],
+    'น่าน':          [18.7756, 100.7730],
+    'บึงกาฬ':        [18.3609, 103.6465],
+    'บุรีรัมย์':     [14.9951, 103.1116],
+    'ปทุมธานี':      [14.0208, 100.5250],
+    'ประจวบคีรีขันธ์':[11.8126, 99.7977],
+    'ปราจีนบุรี':    [14.0519, 101.3677],
+    'ปัตตานี':       [6.8694,  101.2503],
+    'พระนครศรีอยุธยา':[14.3692, 100.5877],
+    'พะเยา':         [19.1664, 99.9017],
+    'พังงา':         [8.4509,  98.5255],
+    'พัทลุง':        [7.6166,  100.0748],
+    'พิจิตร':        [16.4416, 100.3487],
+    'พิษณุโลก':      [16.8211, 100.2659],
+    'เพชรบุรี':      [13.1119, 99.9392],
+    'เพชรบูรณ์':     [16.4190, 101.1591],
+    'แพร่':          [18.1445, 100.1403],
+    'ภูเก็ต':        [7.8804,  98.3923],
+    'มหาสารคาม':     [16.1851, 103.3000],
+    'มุกดาหาร':      [16.5428, 104.7233],
+    'แม่ฮ่องสอน':    [19.2993, 97.9654],
+    'ยโสธร':         [15.7927, 104.1452],
+    'ยะลา':          [6.5415,  101.2803],
+    'ร้อยเอ็ด':      [16.0535, 103.6519],
+    'ระนอง':         [9.9528,  98.6084],
+    'ระยอง':         [12.6814, 101.2816],
+    'ราชบุรี':       [13.5360, 99.8178],
+    'ลพบุรี':        [14.7996, 100.6534],
+    'ลำปาง':         [18.2888, 99.4928],
+    'ลำพูน':         [18.5745, 99.0087],
+    'เลย':           [17.4860, 101.7223],
+    'ศรีสะเกษ':      [15.1185, 104.3220],
+    'สกลนคร':        [17.1664, 104.1486],
+    'สงขลา':         [7.1896,  100.5951],
+    'สตูล':          [6.6238,  100.0673],
+    'สมุทรปราการ':   [13.5991, 100.5998],
+    'สมุทรสงคราม':   [13.4098, 100.0022],
+    'สมุทรสาคร':     [13.5475, 100.2747],
+    'สระแก้ว':       [13.8241, 102.0645],
+    'สระบุรี':       [14.5289, 100.9107],
+    'สิงห์บุรี':     [14.8906, 100.3975],
+    'สุโขทัย':       [17.0069, 99.8265],
+    'สุพรรณบุรี':    [14.4744, 100.1177],
+    'สุราษฎร์ธานี':  [9.1382,  99.3214],
+    'สุรินทร์':      [14.8820, 103.4937],
+    'หนองคาย':       [17.8782, 102.7419],
+    'หนองบัวลำภู':   [17.2218, 102.4260],
+    'อ่างทอง':       [14.5896, 100.4550],
+    'อำนาจเจริญ':    [15.8656, 104.6257],
+    'อุดรธานี':      [17.4138, 102.7872],
+    'อุตรดิตถ์':     [17.6200, 100.0993],
+    'อุทัยธานี':     [15.3835, 100.0255],
+    'อุบลราชธานี':   [15.2287, 104.8561],
+  };
+
+  if (province && PROVINCE_COORDS[province]) {
+    const [lat, lon] = PROVINCE_COORDS[province];
+    console.log('📍 Province fallback:', province, lat, lon);
+    return { latitude: lat, longitude: lon };
+  }
+
+  console.warn('⚠️ geocode failed completely for:', province);
   return null;
 }
 
