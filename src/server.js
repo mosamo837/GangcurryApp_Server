@@ -2790,6 +2790,111 @@ riderRouter.post("/login", async (req, res, next) => {
   }
 });
 
+// riderRouter.get("/parcels", async (req, res, next) => {
+//   try {
+//     const driverId = Number(req.query.driverId);
+//     if (!driverId) return res.status(400).json({ error: "driverId is required" });
+
+//     // ① ดึง shipment พร้อม sender_id, receiver_id
+//     const { data: shipments, error: shipmentError } = await supabase
+//       .from("shipment")
+//       .select(`
+//         shipment_id, tracking_number, status, receiver_address, sender_detail,
+//         shipping_cost, shipment_date, estimated_delivery, request_id,
+//         sender_id, receiver_id, driver_id,
+//         sender:users!shipment_sender_id_fkey(name, phone),
+//         receiver:users!shipment_receiver_id_fkey(name, phone),
+//         request(parcel_id, parcels(weight, width, height, length))
+//       `)
+//       .eq("driver_id", driverId)
+//       .order("shipment_date", { ascending: false });
+
+//     if (shipmentError) throw shipmentError;
+//     if (!shipments?.length) return res.json([]);
+
+//     // ② รวบรวม user_id ที่ต้องการพิกัด (sender + receiver)
+//     const userIds = [
+//       ...new Set([
+//         ...shipments.map((s) => s.sender_id),
+//         ...shipments.map((s) => s.receiver_id),
+//       ].filter(Boolean)),
+//     ];
+
+//     // ③ ดึง default address (latitude, longitude) ของแต่ละ user
+//     const { data: addresses, error: addrError } = await supabase
+//       .from("address")
+//       .select("user_id, latitude, longitude, is_default")
+//       .in("user_id", userIds)
+//       .eq("is_default", true);
+
+//     if (addrError) throw addrError;
+
+//     // ④ สร้าง map user_id → { latitude, longitude }
+//     const coordMap = {};
+//     for (const addr of addresses ?? []) {
+//       if (!coordMap[addr.user_id]) {
+//         coordMap[addr.user_id] = {
+//           latitude: addr.latitude ?? null,
+//           longitude: addr.longitude ?? null,
+//         };
+//       }
+//     }
+
+//     // ⑥ ดึง branch_start จาก shipment_tracking ของแต่ละ shipment
+//     const shipmentIdList = shipments.map((s) => s.shipment_id);
+
+//     const { data: trackingRows } = await supabase
+//       .from("shipment_tracking")
+//       .select("shipment_id, branch_start")
+//       .in("shipment_id", shipmentIdList)
+//       .not("branch_start", "is", null)
+//       .order("timestamp", { ascending: true });
+
+//     // ⑦ หา branch_id unique แล้วดึงพิกัด
+//     const branchIds = [
+//       ...new Set((trackingRows ?? []).map((r) => r.branch_start).filter(Boolean)),
+//     ];
+
+//     let branchMap = {};
+//     if (branchIds.length > 0) {
+//       const { data: branches } = await supabase
+//         .from("branch")
+//         .select("branch_id, name, latitude, longitude")
+//         .in("branch_id", branchIds);
+
+//       branchMap = Object.fromEntries(
+//         (branches ?? []).map((b) => [b.branch_id, b])
+//       );
+//     }
+
+//     // ⑧ map shipment_id → branch_start_id (เอา row แรกสุด = สาขาต้นทาง)
+//     const shipmentBranchMap = {};
+//     for (const row of trackingRows ?? []) {
+//       if (!shipmentBranchMap[row.shipment_id]) {
+//         shipmentBranchMap[row.shipment_id] = row.branch_start;
+//       }
+//     }
+
+//     // ⑨ แนบพิกัดทั้งหมดเข้า result
+//     const result = shipments.map((s) => {
+//       const branchId = shipmentBranchMap[s.shipment_id];
+//       const branch = branchId ? branchMap[branchId] : null;
+//       return {
+//         ...s,
+//         sender_coords:   coordMap[s.sender_id]   ?? { latitude: null, longitude: null },
+//         receiver_coords: coordMap[s.receiver_id] ?? { latitude: null, longitude: null },
+//         origin_branch: branch
+//           ? { latitude: branch.latitude, longitude: branch.longitude, name: branch.name }
+//           : null,
+//       };
+//     });
+
+//     res.json(result);
+//   } catch (error) {
+//     next(error);
+//   }
+// });
+
 riderRouter.get("/parcels", async (req, res, next) => {
   try {
     const driverId = Number(req.query.driverId);
@@ -2812,7 +2917,7 @@ riderRouter.get("/parcels", async (req, res, next) => {
     if (shipmentError) throw shipmentError;
     if (!shipments?.length) return res.json([]);
 
-    // ② รวบรวม user_id ที่ต้องการพิกัด (sender + receiver)
+    // ② รวบรวม user_id ที่ต้องการพิกัด
     const userIds = [
       ...new Set([
         ...shipments.map((s) => s.sender_id),
@@ -2820,7 +2925,7 @@ riderRouter.get("/parcels", async (req, res, next) => {
       ].filter(Boolean)),
     ];
 
-    // ③ ดึง default address (latitude, longitude) ของแต่ละ user
+    // ③ ดึง default address ของแต่ละ user
     const { data: addresses, error: addrError } = await supabase
       .from("address")
       .select("user_id, latitude, longitude, is_default")
@@ -2840,52 +2945,69 @@ riderRouter.get("/parcels", async (req, res, next) => {
       }
     }
 
-    // ⑥ ดึง branch_start จาก shipment_tracking ของแต่ละ shipment
+    // ⑤ ดึง shipment_tracking เพื่อหา branch_start และ branch_end
     const shipmentIdList = shipments.map((s) => s.shipment_id);
 
     const { data: trackingRows } = await supabase
       .from("shipment_tracking")
-      .select("shipment_id, branch_start")
+      .select("shipment_id, branch_start, branch_end")
       .in("shipment_id", shipmentIdList)
-      .not("branch_start", "is", null)
       .order("timestamp", { ascending: true });
 
-    // ⑦ หา branch_id unique แล้วดึงพิกัด
-    const branchIds = [
-      ...new Set((trackingRows ?? []).map((r) => r.branch_start).filter(Boolean)),
+    // ⑥ map shipment_id → branch_start และ branch_end (เอา row แรกสุด)
+    const shipmentBranchStartMap = {};
+    const shipmentBranchEndMap = {};
+
+    for (const row of trackingRows ?? []) {
+      if (!shipmentBranchStartMap[row.shipment_id] && row.branch_start) {
+        shipmentBranchStartMap[row.shipment_id] = row.branch_start;
+      }
+      if (!shipmentBranchEndMap[row.shipment_id] && row.branch_end) {
+        shipmentBranchEndMap[row.shipment_id] = row.branch_end;
+      }
+    }
+
+    // ⑦ รวม branch_id ทั้งหมดที่ต้องดึงพิกัด
+    const allBranchIds = [
+      ...new Set([
+        ...Object.values(shipmentBranchStartMap),
+        ...Object.values(shipmentBranchEndMap),
+      ].filter(Boolean)),
     ];
 
     let branchMap = {};
-    if (branchIds.length > 0) {
+    if (allBranchIds.length > 0) {
       const { data: branches } = await supabase
         .from("branch")
         .select("branch_id, name, latitude, longitude")
-        .in("branch_id", branchIds);
+        .in("branch_id", allBranchIds);
 
       branchMap = Object.fromEntries(
         (branches ?? []).map((b) => [b.branch_id, b])
       );
     }
 
-    // ⑧ map shipment_id → branch_start_id (เอา row แรกสุด = สาขาต้นทาง)
-    const shipmentBranchMap = {};
-    for (const row of trackingRows ?? []) {
-      if (!shipmentBranchMap[row.shipment_id]) {
-        shipmentBranchMap[row.shipment_id] = row.branch_start;
-      }
-    }
-
-    // ⑨ แนบพิกัดทั้งหมดเข้า result
+    // ⑧ แนบพิกัดทั้งหมดเข้า result
     const result = shipments.map((s) => {
-      const branchId = shipmentBranchMap[s.shipment_id];
-      const branch = branchId ? branchMap[branchId] : null;
+      const branchStartId = shipmentBranchStartMap[s.shipment_id];
+      const branchEndId   = shipmentBranchEndMap[s.shipment_id];
+      const branchStart   = branchStartId ? branchMap[branchStartId] : null;
+      const branchEnd     = branchEndId   ? branchMap[branchEndId]   : null;
+
       return {
         ...s,
         sender_coords:   coordMap[s.sender_id]   ?? { latitude: null, longitude: null },
         receiver_coords: coordMap[s.receiver_id] ?? { latitude: null, longitude: null },
-        origin_branch: branch
-          ? { latitude: branch.latitude, longitude: branch.longitude, name: branch.name }
-          : null,
+        origin_branch: branchStart ? {
+          latitude:  branchStart.latitude,
+          longitude: branchStart.longitude,
+          name:      branchStart.name,
+        } : null,
+        destination_branch: branchEnd ? {
+          latitude:  branchEnd.latitude,
+          longitude: branchEnd.longitude,
+          name:      branchEnd.name,
+        } : null,
       };
     });
 
