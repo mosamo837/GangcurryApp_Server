@@ -1977,6 +1977,20 @@ app.post("/api/auth/register", async (req, res, next) => {
         address.province,
         address.zipcode,
       );
+      if (address) {
+      // ✅ ถ้า client ส่ง lat/lng มา ใช้เลย ไม่ต้อง geocode
+      const clientLat = address.latitude ? parseFloat(address.latitude) : null;
+      const clientLng = address.longitude ? parseFloat(address.longitude) : null;
+
+      const coords = (clientLat && clientLng)
+        ? { latitude: clientLat, longitude: clientLng }
+        : await geocodeAddress(
+            address.address_detail,
+            address.subdistrict,
+            address.district,
+            address.province,
+            address.zipcode,
+          );
 
       const { error: addressError } = await supabase.from("address").insert({
         user_id: newUser.user_id,
