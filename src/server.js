@@ -3165,7 +3165,11 @@ riderRouter.patch("/parcels/:shipmentId/status", async (req, res, next) => {
       });
     }
 
-    const validStatuses = ["กำลังจัดส่ง", "delivered", "failed"];
+    const validStatuses = [
+      "กำลังจัดส่ง",
+      "delivered",
+      "failed",
+    ];
 
     if (!status || !validStatuses.includes(status)) {
       return res.status(400).json({
@@ -3173,39 +3177,48 @@ riderRouter.patch("/parcels/:shipmentId/status", async (req, res, next) => {
       });
     }
 
+    // -------------------------
     // update shipment
+    // -------------------------
+
     const updateData = { status };
 
-if (status === "delivered") {
-  updateData.picked_up = true;
-}
+    // Rider ต้นทางกด "รับพัสดุแล้ว"
+    if (status === "กำลังจัดส่ง") {
+      updateData.picked_up = true;
+    }
 
-const { data, error } = await supabase
-  .from("shipment")
-  .update(updateData)
-  .eq("shipment_id", shipmentId)
-  .select(`
-    shipment_id,
-    tracking_number,
-    status,
-    picked_up,
-    receiver_address,
-    sender_detail,
-    shipping_cost,
-    shipment_date,
-    estimated_delivery,
-    request_id,
-    driver_id
-  `)
-  .single();
+    const { data, error } = await supabase
+      .from("shipment")
+      .update(updateData)
+      .eq("shipment_id", shipmentId)
+      .select(`
+        shipment_id,
+        tracking_number,
+        status,
+        picked_up,
+        receiver_address,
+        sender_detail,
+        shipping_cost,
+        shipment_date,
+        estimated_delivery,
+        request_id,
+        driver_id
+      `)
+      .single();
 
     if (error) throw error;
 
+    // -------------------------
     // update request
+    // -------------------------
+
     if (status === "delivered" && data.request_id) {
       const { error: requestError } = await supabase
         .from("request")
-        .update({ status: "delivered" })
+        .update({
+          status: "delivered",
+        })
         .eq("request_id", data.request_id);
 
       if (requestError) throw requestError;
