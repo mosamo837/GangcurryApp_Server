@@ -1926,6 +1926,7 @@ app.patch("/api/users/wallet", async (req, res, next) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // POST /api/auth/register
+// POST /api/auth/register
 app.post("/api/auth/register", async (req, res, next) => {
   try {
     const { name, email, password, phone, address } = req.body;
@@ -1938,6 +1939,7 @@ app.post("/api/auth/register", async (req, res, next) => {
     const existingUser = await getUserByEmail(normalizedEmail);
     if (existingUser) throw createHttpError(409, "อีเมลนี้ถูกใช้งานแล้ว");
 
+    // ✅ เช็ค phone ซ้ำ
     const normalizedPhone = String(phone ?? "").trim();
     if (normalizedPhone) {
       const { data: phoneCheck } = await supabase
@@ -1960,7 +1962,7 @@ app.post("/api/auth/register", async (req, res, next) => {
         name: String(name ?? "").trim(),
         email: normalizedEmail,
         password: hashedPassword,
-        phone: String(phone ?? "").trim(),
+        phone: normalizedPhone,
         wallet: 0,
       })
       .select()
@@ -1969,16 +1971,7 @@ app.post("/api/auth/register", async (req, res, next) => {
     if (userError) throw userError;
 
     if (address) {
-      // ── geocode address ก่อน insert ──
-      const coords = await geocodeAddress(
-        address.address_detail,
-        address.subdistrict,
-        address.district,
-        address.province,
-        address.zipcode,
-      );
-      if (address) {
-      // ✅ ถ้า client ส่ง lat/lng มา ใช้เลย ไม่ต้อง geocode
+      // ✅ ถ้า client ส่ง lat/lng มา (ปักหมุดแผนที่) ใช้เลย ไม่ต้อง geocode
       const clientLat = address.latitude ? parseFloat(address.latitude) : null;
       const clientLng = address.longitude ? parseFloat(address.longitude) : null;
 
@@ -2001,8 +1994,8 @@ app.post("/api/auth/register", async (req, res, next) => {
         zipcode: String(address.zipcode ?? "").trim(),
         label: String(address.label ?? "บ้าน").trim(),
         is_default: true,
-        latitude: coords?.latitude ?? null,   // ← เพิ่ม
-        longitude: coords?.longitude ?? null, // ← เพิ่ม
+        latitude: coords?.latitude ?? null,
+        longitude: coords?.longitude ?? null,
       });
 
       if (addressError) throw addressError;
