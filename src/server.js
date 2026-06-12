@@ -3174,23 +3174,30 @@ riderRouter.patch("/parcels/:shipmentId/status", async (req, res, next) => {
     }
 
     // update shipment
-    const { data, error } = await supabase
-      .from("shipment")
-      .update({ status })
-      .eq("shipment_id", shipmentId)
-      .select(`
-        shipment_id,
-        tracking_number,
-        status,
-        receiver_address,
-        sender_detail,
-        shipping_cost,
-        shipment_date,
-        estimated_delivery,
-        request_id,
-        driver_id
-      `)
-      .single();
+    const updateData = { status };
+
+if (status === "delivered") {
+  updateData.picked_up = true;
+}
+
+const { data, error } = await supabase
+  .from("shipment")
+  .update(updateData)
+  .eq("shipment_id", shipmentId)
+  .select(`
+    shipment_id,
+    tracking_number,
+    status,
+    picked_up,
+    receiver_address,
+    sender_detail,
+    shipping_cost,
+    shipment_date,
+    estimated_delivery,
+    request_id,
+    driver_id
+  `)
+  .single();
 
     if (error) throw error;
 
