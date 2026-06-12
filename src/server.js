@@ -3127,8 +3127,11 @@ riderRouter.get("/parcels/tracking/:trackingNumber", async (req, res, next) => {
  
     res.json({
       ...shipment,
-      sender_coords:   coordMap[shipment.sender_id]   ?? { latitude: null, longitude: null },
-      receiver_coords: coordMap[shipment.receiver_id] ?? { latitude: null, longitude: null },
+      sender_province:
+        provinceMap[s.sender_id] ?? '',
+
+      receiver_province:
+        provinceMap[s.receiver_id] ?? '',
     });
   } catch (error) {
     next(error);
