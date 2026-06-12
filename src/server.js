@@ -3050,6 +3050,12 @@ riderRouter.get("/parcels", async (req, res, next) => {
         };
       }
     }
+
+    const provinceMap = {};
+
+    for (const addr of addresses ?? []) {
+      provinceMap[addr.user_id] = addr.province ?? '';
+    }
  
     // ⑤ แนบพิกัดเข้ากับแต่ละ shipment
     const result = shipments.map((s) => ({
