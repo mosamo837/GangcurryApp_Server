@@ -3032,7 +3032,9 @@ riderRouter.get("/parcels", async (req, res, next) => {
     // ③ ดึง default address (latitude, longitude) ของแต่ละ user
     const { data: addresses, error: addrError } = await supabase
       .from("address")
-      .select("user_id, latitude, longitude, is_default")
+      .select(
+        "user_id, latitude, longitude, is_default, province"
+      )
       .in("user_id", userIds)
       .eq("is_default", true);
  
