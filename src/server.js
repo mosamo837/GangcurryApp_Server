@@ -2982,7 +2982,7 @@ riderRouter.get("/parcels", async (req, res, next) => {
     const { data: shipments, error: shipmentError } = await supabase
       .from("shipment")
       .select(`
-        shipment_id, tracking_number, status, receiver_address, sender_detail,
+        shipment_id, tracking_number, status, picked_up,receiver_address, sender_detail,
         shipping_cost, shipment_date, estimated_delivery, request_id,
         sender_id, receiver_id, driver_id,
         sender:users!shipment_sender_id_fkey(name, phone),
@@ -3051,11 +3051,21 @@ riderRouter.get("/parcels", async (req, res, next) => {
       }
     }
 
-    const provinceMap = {};
+    function getProvince(text = '') {
+  const provinces = [
+    'สุรินทร์',
+    'กาฬสินธุ์',
+    'มหาสารคาม',
+    'บุรีรัมย์',
+    'ร้อยเอ็ด',
+    'นครราชสีมา',
+  ];
 
-    for (const addr of addresses ?? []) {
-      provinceMap[addr.user_id] = addr.province ?? '';
-    }
+  return (
+    provinces.find((p) => text.includes(p)) ??
+    ''
+  );
+}
  
     const result = shipments.map((s) => ({
   ...s,
@@ -3076,10 +3086,10 @@ riderRouter.get("/parcels", async (req, res, next) => {
 
   // เพิ่มตรงนี้
   sender_province:
-    provinceMap[s.sender_id] ?? '',
+  getProvince(s.sender_detail),
 
-  receiver_province:
-    provinceMap[s.receiver_id] ?? '',
+receiver_province:
+  getProvince(s.receiver_address),
 
   branch_start:
     trackingMap[s.shipment_id]
