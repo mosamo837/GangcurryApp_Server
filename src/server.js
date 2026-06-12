@@ -3057,7 +3057,6 @@ riderRouter.get("/parcels", async (req, res, next) => {
       provinceMap[addr.user_id] = addr.province ?? '';
     }
  
-    // ⑤ แนบพิกัดเข้ากับแต่ละ shipment
     const result = shipments.map((s) => ({
   ...s,
 
@@ -3074,6 +3073,13 @@ riderRouter.get("/parcels", async (req, res, next) => {
       latitude: null,
       longitude: null,
     },
+
+  // เพิ่มตรงนี้
+  sender_province:
+    provinceMap[s.sender_id] ?? '',
+
+  receiver_province:
+    provinceMap[s.receiver_id] ?? '',
 
   branch_start:
     trackingMap[s.shipment_id]
