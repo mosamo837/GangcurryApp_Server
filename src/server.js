@@ -1971,6 +1971,7 @@ app.post("/api/auth/register", async (req, res, next) => {
     if (userError) throw userError;
 
     if (address) {
+      console.log('📦 address received:', JSON.stringify(address));
       // ✅ ถ้า client ส่ง lat/lng มา (ปักหมุดแผนที่) ใช้เลย ไม่ต้อง geocode
       const clientLat = address.latitude ? parseFloat(address.latitude) : null;
       const clientLng = address.longitude ? parseFloat(address.longitude) : null;
