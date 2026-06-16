@@ -3264,6 +3264,15 @@ riderRouter.patch("/parcels/:shipmentId/status", async (req, res, next) => {
 
     if (error) throw error;
 
+    const { error: trackingError } = await supabase
+  .from("shipment_tracking")
+  .insert({
+    shipment_id: shipmentId,
+    status: status,
+  });
+
+if (trackingError) throw trackingError;
+
     // -------------------------
     // update request
     // -------------------------
