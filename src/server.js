@@ -1197,7 +1197,33 @@ if (shipment.sender_id) {
   }
 }
 
-res.json({ shipment, trackingList, receiver_coords: receiverCoords, sender_coords: senderCoords, });
+const latestTracking = trackingRows?.[0] ?? null;
+
+const branchStartDetail =
+  latestTracking?.branch_start
+    ? branchMap[latestTracking.branch_start]
+    : null;
+
+const branchEndDetail =
+  latestTracking?.branch_end
+    ? branchMap[latestTracking.branch_end]
+    : null;
+
+
+res.json({
+  shipment,
+
+  trackingList,
+
+  sender_coords: senderCoords,
+
+  receiver_coords: receiverCoords,
+
+  // เพิ่ม 2 ตัวนี้
+  branch_start_detail: branchStartDetail,
+
+  branch_end_detail: branchEndDetail,
+});
   } catch (error) {
     next(error);
   }
