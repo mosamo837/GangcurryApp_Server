@@ -1088,10 +1088,18 @@ app.get("/api/shipments/summary/:trackingNumber", async (req, res, next) => {
 app.get("/api/shipments/track/:trackingNumber", async (req, res, next) => {
   try {
     const { data: shipmentRows, error: shipmentError } = await supabase
-      .from("shipment")
-      .select()
-      .ilike("tracking_number", req.params.trackingNumber.trim().toUpperCase())
-      .limit(1);
+  .from("shipment")
+  .select(`
+    *,
+    request (
+      type
+    )
+  `)
+  .ilike(
+    "tracking_number",
+    req.params.trackingNumber.trim().toUpperCase()
+  )
+  .limit(1);
 
     if (shipmentError) throw shipmentError;
     const shipment = shipmentRows?.[0] ?? null;
