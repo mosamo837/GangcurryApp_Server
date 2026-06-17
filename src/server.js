@@ -3229,7 +3229,7 @@ riderRouter.patch("/parcels/:shipmentId/status", async (req, res, next) => {
     }
 
     const validStatuses = [
-      "กำลังจัดส่ง",
+      "รับพัสดุแล้ว",
       "delivered",
       "failed",
     ];
@@ -3247,7 +3247,7 @@ riderRouter.patch("/parcels/:shipmentId/status", async (req, res, next) => {
     const updateData = { status };
 
     // Rider ต้นทางกด "รับพัสดุแล้ว"
-    if (status === "กำลังจัดส่ง") {
+    if (status === "รับพัสดุแล้ว") {
       updateData.picked_up = true;
     }
 
