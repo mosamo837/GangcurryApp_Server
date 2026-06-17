@@ -2592,9 +2592,17 @@ app.post("/api/returns", async (req, res, next) => {
     if (requestError) throw requestError;
 
     const { error: updateShipmentError } = await supabase
-      .from("shipment")
-      .update({ sender_id: currentUserId, receiver_id: oldSenderId, receiver_address: newReceiverAddress, sender_detail: newSenderDetail, status: "waiting_driver", driver_id: null })
-      .eq("shipment_id", shipmentId);
+  .from("shipment")
+  .update({
+    sender_id: currentUserId,
+    receiver_id: oldSenderId,
+    receiver_address: newReceiverAddress,
+    sender_detail: newSenderDetail,
+    status: "waiting_driver",
+    driver_id: null,
+    picked_up: false, // ← รีเซ็ตให้ไรเดอร์ไปรับพัสดุใหม่
+  })
+  .eq("shipment_id", shipmentId);
 
     if (updateShipmentError) throw updateShipmentError;
 
